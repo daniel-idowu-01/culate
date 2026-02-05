@@ -7,14 +7,17 @@ import { useAuth } from '../context/AuthContext';
 import { LoginScreen } from '../screens/LoginScreen';
 import { AdminTaskListScreen } from '../screens/AdminTaskListScreen';
 import { AssociateTaskListScreen } from '../screens/AssociateTaskListScreen';
+import { PotentialCustomersScreen } from '../screens/PotentialCustomersScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
 import { CreateTaskScreen } from '../screens/CreateTaskScreen';
+import { AddLeadScreen } from '../screens/AddLeadScreen';
 
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
   TaskDetail: { taskId: string };
   CreateTask: undefined;
+  AddLead: { taskId?: string };
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -28,7 +31,16 @@ const AdminTabs = () => (
 
 const AssociateTabs = () => (
   <Tab.Navigator>
-    <Tab.Screen name="MyTasks" component={AssociateTaskListScreen} options={{ title: 'My Tasks' }} />
+    <Tab.Screen
+      name="MyTasks"
+      component={AssociateTaskListScreen}
+      options={{ title: 'My Tasks', tabBarLabel: 'Tasks' }}
+    />
+    <Tab.Screen
+      name="PotentialCustomers"
+      component={PotentialCustomersScreen}
+      options={{ title: 'Potential Customers', tabBarLabel: 'Contacts' }}
+    />
   </Tab.Navigator>
 );
 
@@ -68,6 +80,11 @@ export const RootNavigator = () => {
               name="CreateTask"
               component={CreateTaskScreen}
               options={{ title: 'New Task' }}
+            />
+            <RootStack.Screen
+              name="AddLead"
+              component={AddLeadScreen}
+              options={{ title: 'Add Potential Customer' }}
             />
           </>
         )}

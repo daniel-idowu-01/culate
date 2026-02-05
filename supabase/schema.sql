@@ -27,6 +27,20 @@ create table if not exists public.tasks (
   updated_at timestamptz not null default now()
 );
 
+-- Potential customers (leads) table - for direct_sales_associate to record contacts
+-- Linked to tasks to track outcome per task
+create table if not exists public.leads (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid references public.tasks(id) on delete set null,
+  name text not null,
+  contact_phone text,
+  contact_email text,
+  conversation_summary text not null,
+  recorded_by uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint leads_has_contact check (contact_phone is not null or contact_email is not null)
+);
+
 -- Devices table for Expo push tokens
 create table if not exists public.devices (
   id uuid primary key default gen_random_uuid(),
@@ -55,6 +69,7 @@ execute procedure public.set_updated_at();
 -- RLS
 alter table public.profiles enable row level security;
 alter table public.tasks enable row level security;
+alter table public.leads enable row level security;
 alter table public.devices enable row level security;
 
 -- Profiles policies
@@ -99,6 +114,18 @@ create policy "Tasks: users can insert tasks for themselves"
   on public.tasks
   for insert
   with check (created_by = auth.uid() and assigned_to = auth.uid());
+
+-- Leads policies: associates manage own leads; admin can view all
+create policy "Leads: associates full access to own"
+  on public.leads
+  for all
+  using (recorded_by = auth.uid())
+  with check (recorded_by = auth.uid());
+
+create policy "Leads: admin can view all"
+  on public.leads
+  for select
+  using (public.is_admin());
 
 -- Devices policies
 create policy "Devices: user can manage own tokens"

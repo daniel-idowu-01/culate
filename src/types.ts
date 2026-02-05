@@ -26,3 +26,14 @@ export type Task = {
   updated_at: string;
 };
 
+export type Lead = {
+  id: string;
+  task_id: string | null;
+  name: string;
+  contact_phone: string | null;
+  contact_email: string | null;
+  conversation_summary: string;
+  recorded_by: string;
+  created_at: string;
+};
+

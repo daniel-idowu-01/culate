@@ -10,12 +10,15 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { supabase } from '../api/supabaseClient';
-import type { Task, TaskStatus, TaskPriority } from '../types';
+import type { Task, TaskStatus, TaskPriority, Lead } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useLeads } from '../hooks/useLeads';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const formatRemaining = (dueAt: string | null) => {
   if (!dueAt) return { text: 'No deadline', isOverdue: false, isUrgent: false };
@@ -51,6 +54,20 @@ const formatTimeSpent = (seconds: number) => {
   return `${hours}h ${minutes}m ${secs}s`;
 };
 
+const LeadOutcomeCard = ({ lead }: { lead: Lead }) => {
+  const contact = [lead.contact_phone, lead.contact_email].filter(Boolean).join(' • ');
+  return (
+    <View style={styles.leadCard}>
+      <Text style={styles.leadCardName}>{lead.name}</Text>
+      {contact ? <Text style={styles.leadCardContact}>{contact}</Text> : null}
+      <Text style={styles.leadCardSummary}>{lead.conversation_summary}</Text>
+      <Text style={styles.leadCardDate}>
+        {new Date(lead.created_at).toLocaleDateString()}
+      </Text>
+    </View>
+  );
+};
+
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
   { value: 'low', label: 'Low', color: '#10B981' },
   { value: 'medium', label: 'Medium', color: '#F59E0B' },
@@ -59,7 +76,7 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] 
 
 export const TaskDetailScreen = () => {
   const route = useRoute<TaskDetailRoute>();
-  const navigation = useNavigation();
+  const navigation = useNavigation<Nav>();
   const { role, session } = useAuth();
   
   const [task, setTask] = useState<Task | null>(null);
@@ -75,6 +92,11 @@ export const TaskDetailScreen = () => {
   const canEditAll = role === 'admin';
   const canEditStatusOnly = role === 'direct_sales_associate';
   const isRunning = task?.started_at !== null;
+
+  const { leads: taskLeads } = useLeads({
+    scope: role === 'admin' ? 'all' : 'mine',
+    taskId: task?.id ?? undefined,
+  });
 
   useEffect(() => {
     const fetchTask = async () => {
@@ -428,6 +450,33 @@ export const TaskDetailScreen = () => {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Task Outcome - Potential customers linked to this task */}
+      {(canEditAll || canEditStatusOnly) && (
+        <View style={styles.outcomeCard}>
+          <View style={styles.outcomeHeader}>
+            <Text style={styles.outcomeTitle}>Task Outcome</Text>
+            <Text style={styles.outcomeSubtitle}>Potential customers from this task</Text>
+            <TouchableOpacity
+              style={styles.addLeadButton}
+              onPress={() => navigation.navigate('AddLead', { taskId: task?.id })}
+            >
+              <Text style={styles.addLeadButtonText}>+ Add potential customer</Text>
+            </TouchableOpacity>
+          </View>
+          {taskLeads.length === 0 ? (
+            <View style={styles.outcomeEmpty}>
+              <Text style={styles.outcomeEmptyIcon}>👤</Text>
+              <Text style={styles.outcomeEmptyText}>No potential customers recorded yet</Text>
+              <Text style={styles.outcomeEmptyHint}>Tap the button above to add contacts from this task</Text>
+            </View>
+          ) : (
+            taskLeads.map((lead) => (
+              <LeadOutcomeCard key={lead.id} lead={lead} />
+            ))
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 };
@@ -648,5 +697,91 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  outcomeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  outcomeHeader: {
+    marginBottom: 16,
+  },
+  outcomeTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  outcomeSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  addLeadButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#DBEAFE',
+    borderWidth: 1,
+    borderColor: '#3B82F6',
+  },
+  addLeadButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  outcomeEmpty: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  outcomeEmptyIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  outcomeEmptyText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  outcomeEmptyHint: {
+    fontSize: 13,
+    color: '#9CA3AF',
+  },
+  leadCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  leadCardName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  leadCardContact: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  leadCardSummary: {
+    fontSize: 14,
+    color: '#374151',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  leadCardDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 8,
   },
 });

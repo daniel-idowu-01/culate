@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#F9FAFB',
   },
   content: {
     flex: 1,
@@ -245,24 +245,26 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: '700',
-    color: '#F9FAFB',
+    color: '#111827',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: '#9CA3AF',
+    color: '#6B7280',
     textAlign: 'center',
     lineHeight: 22,
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     padding: 24,
     borderRadius: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.08,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   inputGroup: {
     marginBottom: 20,
@@ -270,17 +272,17 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#F9FAFB',
+    color: '#374151',
     marginBottom: 8,
   },
   input: {
     borderWidth: 1.5,
-    borderColor: '#334155',
+    borderColor: '#D1D5DB',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#0F172A',
-    color: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
+    color: '#111827',
     fontSize: 16,
   },
   inputError: {
@@ -320,7 +322,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   buttonDisabled: {
-    backgroundColor: '#475569',
+    backgroundColor: '#9CA3AF',
     shadowOpacity: 0,
   },
   buttonText: {
@@ -336,17 +338,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   switchQuestion: {
-    color: '#9CA3AF',
+    color: '#6B7280',
     fontSize: 14,
   },
   switchText: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 14,
     fontWeight: '600',
   },
   footer: {
     textAlign: 'center',
-    color: '#64748B',
+    color: '#9CA3AF',
     fontSize: 12,
     marginTop: 24,
   },
