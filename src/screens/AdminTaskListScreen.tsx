@@ -16,7 +16,10 @@ export const AdminTaskListScreen = () => {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>All Tasks</Text>
-        <Button title="Refresh" onPress={() => refetch()} disabled={isLoading} />
+        <View style={styles.headerButtons}>
+          <Button title="New" onPress={() => navigation.navigate('CreateTask')} />
+          <Button title="Refresh" onPress={() => refetch()} disabled={isLoading} />
+        </View>
       </View>
       <FlatList
         data={tasks}
@@ -48,6 +51,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
   },
   title: {
     fontSize: 22,

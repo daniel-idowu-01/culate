@@ -95,6 +95,11 @@ create policy "Tasks: associates can update limited fields on assigned tasks"
   using (assigned_to = auth.uid())
   with check (assigned_to = auth.uid());
 
+create policy "Tasks: users can insert tasks for themselves"
+  on public.tasks
+  for insert
+  with check (created_by = auth.uid() and assigned_to = auth.uid());
+
 -- Devices policies
 create policy "Devices: user can manage own tokens"
   on public.devices

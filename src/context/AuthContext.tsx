@@ -110,22 +110,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signUp: AuthContextValue['signUp'] = async (email, password) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
       return { error: new Error(error.message) };
     }
 
-    if (data.session) {
-      const profile = await fetchProfile(data.session.user.id);
-      setState({
-        session: data.session,
-        profile,
-        role: profile?.role ?? null,
-        loading: false,
-      });
-    }
-
+    // Do not auto-sign-in; let the UI switch back to sign-in mode.
     return {};
   };
 

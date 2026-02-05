@@ -8,11 +8,13 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { AdminTaskListScreen } from '../screens/AdminTaskListScreen';
 import { AssociateTaskListScreen } from '../screens/AssociateTaskListScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
+import { CreateTaskScreen } from '../screens/CreateTaskScreen';
 
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
   TaskDetail: { taskId: string };
+  CreateTask: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -61,6 +63,11 @@ export const RootNavigator = () => {
               name="TaskDetail"
               component={TaskDetailScreen}
               options={{ title: 'Task Details' }}
+            />
+            <RootStack.Screen
+              name="CreateTask"
+              component={CreateTaskScreen}
+              options={{ title: 'New Task' }}
             />
           </>
         )}
