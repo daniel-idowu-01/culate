@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../api/supabaseClient';
+import { registerForPushNotifications } from '../api/pushNotifications';
 import type { Profile, UserRole } from '../types';
 
 type AuthState = {
@@ -41,6 +42,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           role: profile?.role ?? null,
           loading: false,
         });
+        
+        // Register for push notifications
+        await registerForPushNotifications(session.user.id);
       } else {
         setState((prev) => ({ ...prev, loading: false }));
       }
@@ -48,7 +52,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     init();
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!session) {
         setState({
           session: null,
@@ -59,14 +63,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      fetchProfile(session.user.id).then((profile) => {
-        setState({
-          session,
-          profile,
-          role: profile?.role ?? null,
-          loading: false,
-        });
+      const profile = await fetchProfile(session.user.id);
+      setState({
+        session,
+        profile,
+        role: profile?.role ?? null,
+        loading: false,
       });
+      
+      // Register for push notifications
+      await registerForPushNotifications(session.user.id);
     });
 
     return () => {
@@ -104,6 +110,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         role: profile?.role ?? null,
         loading: false,
       });
+      
+      // Register for push notifications
+      await registerForPushNotifications(data.session.user.id);
     }
 
     return {};
@@ -163,4 +172,3 @@ export const useAuth = () => {
   }
   return ctx;
 };
-

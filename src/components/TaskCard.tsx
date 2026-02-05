@@ -45,16 +45,21 @@ const getPriorityColor = (priority: string) => {
   }
 };
 
-const getStatusConfig = (status: string) => {
+const getStatusConfig = (status: string, isOverdue: boolean) => {
+  // Override status if task is overdue
+  if (isOverdue && status !== 'completed') {
+    return { color: '#EF4444', bg: '#FEE2E2', icon: '⚠', label: 'overdue' };
+  }
+  
   switch (status) {
     case 'completed':
-      return { color: '#10B981', bg: '#D1FAE5', icon: '✓' };
+      return { color: '#10B981', bg: '#D1FAE5', icon: '✓', label: 'completed' };
     case 'in_progress':
-      return { color: '#3B82F6', bg: '#DBEAFE', icon: '▶' };
+      return { color: '#3B82F6', bg: '#DBEAFE', icon: '▶', label: 'in progress' };
     case 'overdue':
-      return { color: '#EF4444', bg: '#FEE2E2', icon: '⚠' };
+      return { color: '#EF4444', bg: '#FEE2E2', icon: '⚠', label: 'overdue' };
     default:
-      return { color: '#6B7280', bg: '#F3F4F6', icon: '○' };
+      return { color: '#6B7280', bg: '#F3F4F6', icon: '○', label: 'pending' };
   }
 };
 
@@ -85,7 +90,7 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
     }).start();
   };
 
-  const statusConfig = getStatusConfig(task.status);
+  const statusConfig = getStatusConfig(task.status, timeInfo.isOverdue);
   const priorityColor = getPriorityColor(task.priority);
 
   return (
@@ -112,7 +117,7 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
             <View style={[styles.statusBadge, { backgroundColor: statusConfig.bg }]}>
               <Text style={styles.statusIcon}>{statusConfig.icon}</Text>
               <Text style={[styles.statusText, { color: statusConfig.color }]}>
-                {task.status.replace('_', ' ')}
+                {statusConfig.label}
               </Text>
             </View>
           </View>
@@ -131,7 +136,9 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
               timeInfo.isOverdue && styles.timerOverdue,
               timeInfo.isUrgent && styles.timerUrgent,
             ]}>
-              <Text style={styles.timerIcon}>⏱</Text>
+              <Text style={styles.timerIcon}>
+                {timeInfo.isOverdue ? '⚠' : timeInfo.isUrgent ? '⏰' : '⏱'}
+              </Text>
               <Text style={[
                 styles.timerText,
                 timeInfo.isOverdue && styles.timerTextOverdue,
