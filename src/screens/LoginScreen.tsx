@@ -3,13 +3,14 @@ import {
   View,
   Text,
   TextInput,
-  Button,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
+  TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,21 +20,77 @@ export const LoginScreen = () => {
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+
+  const fadeAnim = useState(new Animated.Value(0))[0];
+
+  React.useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const validateForm = () => {
+    const newErrors: { email?: string; password?: string } = {};
+    
+    if (!email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!validateEmail(email.trim())) {
+      newErrors.email = 'Please enter a valid email';
+    }
+    
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (mode === 'signup' && password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async () => {
+    Keyboard.dismiss();
+    
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
     const trimmedEmail = email.trim();
     const action = mode === 'signin' ? signIn : signUp;
     const { error } = await action(trimmedEmail, password);
     setLoading(false);
+    
     if (error) {
-      console.log(error)
-      Alert.alert('Error', error.message);
+      Alert.alert(
+        mode === 'signin' ? 'Sign In Failed' : 'Sign Up Failed',
+        error.message,
+        [{ text: 'OK' }]
+      );
     } else if (mode === 'signup') {
-      Alert.alert('Success', 'Account created. Please sign in.');
+      Alert.alert(
+        'Success! 🎉',
+        'Your account has been created. Please sign in to continue.',
+        [{ text: 'OK' }]
+      );
       setMode('signin');
       setPassword('');
+      setErrors({});
     }
+  };
+
+  const switchMode = () => {
+    setMode(mode === 'signin' ? 'signup' : 'signin');
+    setErrors({});
   };
 
   return (
@@ -43,47 +100,112 @@ export const LoginScreen = () => {
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
-          <Text style={styles.title}>Task Tracker</Text>
-          <View style={styles.card}>
-            <Text style={styles.subtitle}>
-              {mode === 'signin' ? 'Welcome back' : 'Create your account'}
+          <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.iconContainer}>
+                <Text style={styles.icon}>✓</Text>
+              </View>
+              <Text style={styles.title}>Task Tracker</Text>
+              <Text style={styles.subtitle}>
+                {mode === 'signin' 
+                  ? 'Welcome back! Sign in to continue' 
+                  : 'Create your account to get started'}
+              </Text>
+            </View>
+
+            {/* Form Card */}
+            <View style={styles.card}>
+              {/* Email Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    errors.email && styles.inputError
+                  ]}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#9CA3AF"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  value={email}
+                  onChangeText={(text) => {
+                    setEmail(text);
+                    if (errors.email) setErrors({ ...errors, email: undefined });
+                  }}
+                  editable={!loading}
+                />
+                {errors.email && (
+                  <Text style={styles.errorText}>{errors.email}</Text>
+                )}
+              </View>
+
+              {/* Password Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Password</Text>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.passwordInput,
+                      errors.password && styles.inputError
+                    ]}
+                    placeholder={mode === 'signup' ? 'At least 6 characters' : 'Enter your password'}
+                    placeholderTextColor="#9CA3AF"
+                    secureTextEntry={!showPassword}
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      if (errors.password) setErrors({ ...errors, password: undefined });
+                    }}
+                    editable={!loading}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Text style={styles.eyeIcon}>{showPassword ? '👁' : '👁‍🗨'}</Text>
+                  </TouchableOpacity>
+                </View>
+                {errors.password && (
+                  <Text style={styles.errorText}>{errors.password}</Text>
+                )}
+              </View>
+
+              {/* Submit Button */}
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleSubmit}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.buttonText}>
+                  {loading 
+                    ? 'Please wait...' 
+                    : mode === 'signin' ? 'Sign In' : 'Create Account'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Switch Mode */}
+              <View style={styles.switchContainer}>
+                <Text style={styles.switchQuestion}>
+                  {mode === 'signin'
+                    ? "Don't have an account?"
+                    : 'Already have an account?'}
+                </Text>
+                <TouchableOpacity onPress={switchMode} disabled={loading}>
+                  <Text style={styles.switchText}>
+                    {mode === 'signin' ? 'Sign up' : 'Sign in'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Footer */}
+            <Text style={styles.footer}>
+              Secure authentication powered by Supabase
             </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-            <Button
-              title={
-                loading ? 'Please wait...' : mode === 'signin' ? 'Sign In' : 'Sign Up'
-              }
-              onPress={handleSubmit}
-              disabled={loading}
-            />
-          </View>
-          <View style={styles.switchRow}>
-            <Text>
-              {mode === 'signin'
-                ? "Don't have an account?"
-                : 'Already have an account?'}
-            </Text>
-            <Text
-              style={styles.switchText}
-              onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-            >
-              {mode === 'signin' ? 'Sign up' : 'Sign in'}
-            </Text>
-          </View>
+          </Animated.View>
         </View>
       </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
@@ -96,51 +218,136 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
     backgroundColor: '#0F172A',
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 24,
-    textAlign: 'center',
-    color: '#E5E7EB',
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#6B7280',
+  header: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  iconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#1F2937',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-    backgroundColor: '#111827',
-    color: '#E5E7EB',
+  icon: {
+    fontSize: 32,
+    color: '#FFFFFF',
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#F9FAFB',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 22,
   },
   card: {
-    backgroundColor: '#020617',
-    padding: 20,
-    borderRadius: 16,
+    backgroundColor: '#1E293B',
+    padding: 24,
+    borderRadius: 20,
     shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#F9FAFB',
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1.5,
+    borderColor: '#334155',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#0F172A',
+    color: '#F9FAFB',
+    fontSize: 16,
+  },
+  inputError: {
+    borderColor: '#EF4444',
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 50,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    top: 14,
+    padding: 4,
+  },
+  eyeIcon: {
+    fontSize: 20,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#EF4444',
+    marginTop: 6,
+    marginLeft: 4,
+  },
+  button: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 8,
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  switchRow: {
+  buttonDisabled: {
+    backgroundColor: '#475569',
+    shadowOpacity: 0,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  switchContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 16,
-    gap: 4,
+    alignItems: 'center',
+    marginTop: 20,
+    gap: 6,
+  },
+  switchQuestion: {
+    color: '#9CA3AF',
+    fontSize: 14,
   },
   switchText: {
-    color: '#38BDF8',
-    marginLeft: 4,
+    color: '#60A5FA',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  footer: {
+    textAlign: 'center',
+    color: '#64748B',
+    fontSize: 12,
+    marginTop: 24,
   },
 });
-

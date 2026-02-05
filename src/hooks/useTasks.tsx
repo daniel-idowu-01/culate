@@ -31,4 +31,3 @@ export const useTasks = ({ scope }: UseTasksOptions) => {
     ...query,
   };
 };
-

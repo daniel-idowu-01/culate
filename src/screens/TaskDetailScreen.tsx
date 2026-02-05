@@ -1,43 +1,80 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Button, TextInput, Alert, ScrollView } from 'react-native';
-import { RouteProp, useRoute } from '@react-navigation/native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  Alert,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
+import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { supabase } from '../api/supabaseClient';
-import type { Task, TaskStatus } from '../types';
+import type { Task, TaskStatus, TaskPriority } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
 
 const formatRemaining = (dueAt: string | null) => {
-  if (!dueAt) return 'No due time';
+  if (!dueAt) return { text: 'No deadline', isOverdue: false, isUrgent: false };
   const due = new Date(dueAt).getTime();
   const now = Date.now();
   const diffMs = due - now;
   const diffSec = Math.floor(diffMs / 1000);
+  const isOverdue = diffSec < 0;
+  const isUrgent = diffSec > 0 && diffSec < 3600;
+  
   const sign = diffSec >= 0 ? '' : '-';
   const absSec = Math.abs(diffSec);
   const hours = Math.floor(absSec / 3600);
   const minutes = Math.floor((absSec % 3600) / 60);
   const seconds = absSec % 60;
-  return `${sign}${hours.toString().padStart(2, '0')}:${minutes
-    .toString()
-    .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  
+  return {
+    text: `${sign}${hours.toString().padStart(2, '0')}:${minutes
+      .toString()
+      .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
+    isOverdue,
+    isUrgent,
+    hours,
+    minutes,
+    seconds,
+  };
 };
+
+const formatTimeSpent = (seconds: number) => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${hours}h ${minutes}m ${secs}s`;
+};
+
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
+  { value: 'low', label: 'Low', color: '#10B981' },
+  { value: 'medium', label: 'Medium', color: '#F59E0B' },
+  { value: 'high', label: 'High', color: '#EF4444' },
+];
 
 export const TaskDetailScreen = () => {
   const route = useRoute<TaskDetailRoute>();
+  const navigation = useNavigation();
   const { role, session } = useAuth();
+  
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>('pending');
+  const [priority, setPriority] = useState<TaskPriority>('medium');
   const [dueAt, setDueAt] = useState<string | null>(null);
-  const [timerLabel, setTimerLabel] = useState('');
+  const [timeInfo, setTimeInfo] = useState(formatRemaining(null));
 
   const canEditAll = role === 'admin';
   const canEditStatusOnly = role === 'direct_sales_associate';
+  const isRunning = task?.started_at !== null;
 
   useEffect(() => {
     const fetchTask = async () => {
@@ -49,14 +86,16 @@ export const TaskDetailScreen = () => {
 
       if (error) {
         Alert.alert('Error', error.message);
+        navigation.goBack();
       } else {
         const t = data as Task;
         setTask(t);
         setTitle(t.title);
         setDescription(t.description ?? '');
         setStatus(t.status);
+        setPriority(t.priority);
         setDueAt(t.due_at);
-        setTimerLabel(formatRemaining(t.due_at));
+        setTimeInfo(formatRemaining(t.due_at));
       }
       setLoading(false);
     };
@@ -66,7 +105,7 @@ export const TaskDetailScreen = () => {
 
   useEffect(() => {
     const id = setInterval(() => {
-      setTimerLabel(formatRemaining(dueAt));
+      setTimeInfo(formatRemaining(dueAt));
     }, 1000);
     return () => clearInterval(id);
   }, [dueAt]);
@@ -79,6 +118,7 @@ export const TaskDetailScreen = () => {
     if (canEditAll) {
       updates.title = title;
       updates.description = description;
+      updates.priority = priority;
       updates.due_at = dueAt;
     }
     if (canEditAll || canEditStatusOnly) {
@@ -101,7 +141,7 @@ export const TaskDetailScreen = () => {
 
     const updated = data as Task;
     setTask(updated);
-    Alert.alert('Saved', 'Task updated');
+    Alert.alert('Success', 'Task updated successfully');
   };
 
   const handleStart = async () => {
@@ -113,139 +153,500 @@ export const TaskDetailScreen = () => {
       .eq('id', task.id)
       .select()
       .single();
+    
     if (error) {
       Alert.alert('Error', error.message);
       return;
     }
+    
     const updated = data as Task;
     setTask(updated);
     setStatus(updated.status);
   };
 
-  const handlePauseOrComplete = async (mode: 'pause' | 'complete') => {
+  const handlePause = async () => {
     if (!task) return;
     const now = new Date();
     let total = task.time_spent_seconds;
+    
     if (task.started_at) {
       const startedAtDate = new Date(task.started_at);
       const diffSec = Math.floor((now.getTime() - startedAtDate.getTime()) / 1000);
       total += diffSec;
     }
-    const newStatus: TaskStatus = mode === 'complete' ? 'completed' : 'in_progress';
+    
     const { error, data } = await supabase
       .from('tasks')
       .update({
-        started_at: mode === 'pause' ? null : task.started_at,
+        started_at: null,
         time_spent_seconds: total,
-        status: newStatus,
       })
       .eq('id', task.id)
       .select()
       .single();
+    
     if (error) {
       Alert.alert('Error', error.message);
       return;
     }
+    
+    const updated = data as Task;
+    setTask(updated);
+  };
+
+  const handleComplete = async () => {
+    if (!task) return;
+    const now = new Date();
+    let total = task.time_spent_seconds;
+    
+    if (task.started_at) {
+      const startedAtDate = new Date(task.started_at);
+      const diffSec = Math.floor((now.getTime() - startedAtDate.getTime()) / 1000);
+      total += diffSec;
+    }
+    
+    const { error, data } = await supabase
+      .from('tasks')
+      .update({
+        started_at: null,
+        time_spent_seconds: total,
+        status: 'completed',
+      })
+      .eq('id', task.id)
+      .select()
+      .single();
+    
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    
     const updated = data as Task;
     setTask(updated);
     setStatus(updated.status);
+    
+    Alert.alert('Completed! 🎉', 'Great job finishing this task!');
   };
 
   if (loading || !task) {
     return (
-      <View style={styles.center}>
-        <Text>Loading...</Text>
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+        <Text style={styles.loadingText}>Loading task...</Text>
       </View>
     );
   }
 
+  const priorityConfig = PRIORITY_OPTIONS.find(p => p.value === priority);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.label}>Title</Text>
-      <TextInput
-        style={styles.input}
-        editable={canEditAll}
-        value={title}
-        onChangeText={setTitle}
-      />
-
-      <Text style={styles.label}>Description</Text>
-      <TextInput
-        style={[styles.input, styles.multiline]}
-        editable={canEditAll}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-      />
-
-      <Text style={styles.label}>Status: {status}</Text>
-
-      <Text style={styles.label}>Due at (ISO string)</Text>
-      <TextInput
-        style={styles.input}
-        editable={canEditAll}
-        value={dueAt ?? ''}
-        onChangeText={(txt) => setDueAt(txt || null)}
-        placeholder="e.g. 2026-02-05T18:00:00.000Z"
-      />
-
-      <Text style={styles.timer}>Time left: {timerLabel}</Text>
-
-      <View style={styles.buttonRow}>
-        {(canEditAll || canEditStatusOnly) && (
-          <>
-            <Button title="Start" onPress={handleStart} />
-            <Button title="Pause" onPress={() => handlePauseOrComplete('pause')} />
-            <Button title="Complete" onPress={() => handlePauseOrComplete('complete')} />
-          </>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Timer Card */}
+      <View style={[
+        styles.timerCard,
+        timeInfo.isOverdue && styles.timerCardOverdue,
+        timeInfo.isUrgent && styles.timerCardUrgent,
+      ]}>
+        <Text style={styles.timerLabel}>
+          {timeInfo.isOverdue ? 'Overdue by' : 'Time Remaining'}
+        </Text>
+        <View style={styles.timerDisplay}>
+          <View style={styles.timerSegment}>
+            <Text style={[
+              styles.timerNumber,
+              timeInfo.isOverdue && styles.timerNumberOverdue,
+            ]}>
+              {(timeInfo.hours ?? 0).toString().padStart(2, '0')}
+            </Text>
+            <Text style={styles.timerUnit}>hours</Text>
+          </View>
+          <Text style={styles.timerColon}>:</Text>
+          <View style={styles.timerSegment}>
+            <Text style={[
+              styles.timerNumber,
+              timeInfo.isOverdue && styles.timerNumberOverdue,
+            ]}>
+              {(timeInfo.minutes ?? 0).toString().padStart(2, '0')}
+            </Text>
+            <Text style={styles.timerUnit}>mins</Text>
+          </View>
+          <Text style={styles.timerColon}>:</Text>
+          <View style={styles.timerSegment}>
+            <Text style={[
+              styles.timerNumber,
+              timeInfo.isOverdue && styles.timerNumberOverdue,
+            ]}>
+              {(timeInfo.seconds ?? 0).toString().padStart(2, '0')}
+            </Text>
+            <Text style={styles.timerUnit}>secs</Text>
+          </View>
+        </View>
+        
+        {task.time_spent_seconds > 0 && (
+          <Text style={styles.timeSpent}>
+            Time spent: {formatTimeSpent(task.time_spent_seconds)}
+          </Text>
         )}
       </View>
 
-      <View style={styles.saveRow}>
-        <Button title={saving ? 'Saving...' : 'Save'} onPress={handleSave} disabled={saving} />
+      {/* Task Controls */}
+      {(canEditAll || canEditStatusOnly) && (
+        <View style={styles.controlsCard}>
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              styles.startButton,
+              isRunning && styles.controlButtonDisabled,
+            ]}
+            onPress={handleStart}
+            disabled={isRunning || status === 'completed'}
+          >
+            <Text style={styles.controlButtonIcon}>▶</Text>
+            <Text style={styles.controlButtonText}>Start</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              styles.pauseButton,
+              !isRunning && styles.controlButtonDisabled,
+            ]}
+            onPress={handlePause}
+            disabled={!isRunning}
+          >
+            <Text style={styles.controlButtonIcon}>⏸</Text>
+            <Text style={styles.controlButtonText}>Pause</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              styles.completeButton,
+              status === 'completed' && styles.controlButtonDisabled,
+            ]}
+            onPress={handleComplete}
+            disabled={status === 'completed'}
+          >
+            <Text style={styles.controlButtonIcon}>✓</Text>
+            <Text style={styles.controlButtonText}>Complete</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Task Details */}
+      <View style={styles.detailsCard}>
+        <View style={styles.statusRow}>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>
+              {status.replace('_', ' ').toUpperCase()}
+            </Text>
+          </View>
+          <View style={[styles.priorityBadge, { backgroundColor: priorityConfig?.color }]}>
+            <Text style={styles.priorityBadgeText}>
+              {priority.toUpperCase()}
+            </Text>
+          </View>
+        </View>
+
+        {/* Title */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Title</Text>
+          <TextInput
+            style={[styles.input, !canEditAll && styles.inputDisabled]}
+            editable={canEditAll}
+            value={title}
+            onChangeText={setTitle}
+          />
+        </View>
+
+        {/* Description */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.textArea, !canEditAll && styles.inputDisabled]}
+            editable={canEditAll}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+        </View>
+
+        {/* Priority (Admin only) */}
+        {canEditAll && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Priority</Text>
+            <View style={styles.priorityContainer}>
+              {PRIORITY_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.priorityButton,
+                    priority === option.value && styles.priorityButtonActive,
+                    { borderColor: option.color },
+                    priority === option.value && { backgroundColor: option.color },
+                  ]}
+                  onPress={() => setPriority(option.value)}
+                >
+                  <Text
+                    style={[
+                      styles.priorityButtonText,
+                      priority === option.value && styles.priorityButtonTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Due Date (Admin only) */}
+        {canEditAll && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Due Date (ISO format)</Text>
+            <TextInput
+              style={styles.input}
+              value={dueAt ?? ''}
+              onChangeText={(txt) => setDueAt(txt || null)}
+              placeholder="2026-02-05T18:00:00.000Z"
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+        )}
+
+        {/* Save Button */}
+        <TouchableOpacity
+          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          <Text style={styles.saveButtonText}>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  center: {
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  content: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F9FAFB',
   },
-  container: {
-    padding: 16,
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  timerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  timerCardUrgent: {
+    backgroundColor: '#FEF3C7',
+  },
+  timerCardOverdue: {
+    backgroundColor: '#FEE2E2',
+  },
+  timerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 16,
+  },
+  timerDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timerSegment: {
+    alignItems: 'center',
+  },
+  timerNumber: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#111827',
+    fontVariant: ['tabular-nums'],
+  },
+  timerNumberOverdue: {
+    color: '#DC2626',
+  },
+  timerUnit: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+  timerColon: {
+    fontSize: 40,
+    fontWeight: '300',
+    color: '#6B7280',
+    marginTop: -8,
+  },
+  timeSpent: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  controlsCard: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  controlButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 6,
+  },
+  startButton: {
+    backgroundColor: '#3B82F6',
+  },
+  pauseButton: {
+    backgroundColor: '#F59E0B',
+  },
+  completeButton: {
+    backgroundColor: '#10B981',
+  },
+  controlButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  controlButtonIcon: {
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  controlButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  detailsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#DBEAFE',
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E40AF',
+    letterSpacing: 0.5,
+  },
+  priorityBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  priorityBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  inputGroup: {
+    marginBottom: 20,
   },
   label: {
+    fontSize: 14,
     fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 4,
+    color: '#374151',
+    marginBottom: 8,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    fontSize: 15,
+    color: '#111827',
   },
-  multiline: {
-    minHeight: 80,
+  inputDisabled: {
+    backgroundColor: '#F9FAFB',
+    color: '#6B7280',
+  },
+  textArea: {
+    minHeight: 100,
     textAlignVertical: 'top',
   },
-  timer: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#555',
-  },
-  buttonRow: {
+  priorityContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
+    gap: 10,
   },
-  saveRow: {
-    marginTop: 24,
+  priorityButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 2,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+  },
+  priorityButtonActive: {
+    borderWidth: 2,
+  },
+  priorityButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  priorityButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  saveButton: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#9CA3AF',
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
-

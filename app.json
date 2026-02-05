@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "newapp",
-    "slug": "newapp",
+    "name": "culate",
+    "slug": "culate",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
