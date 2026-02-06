@@ -16,7 +16,7 @@ export const useTasks = ({ scope }: UseTasksOptions) => {
       if (!session) return [] as Task[];
       let q = supabase.from('tasks').select('*').order('due_at', { ascending: true });
       if (scope === 'mine') {
-        q = q.eq('assigned_to', session.user.id);
+        q = q.eq('assigned_to_user_id', session.user.id);
       }
       const { data, error } = await q;
       if (error) {

@@ -69,9 +69,9 @@ const LeadOutcomeCard = ({ lead }: { lead: Lead }) => {
 };
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Low', color: '#10B981' },
-  { value: 'medium', label: 'Medium', color: '#F59E0B' },
-  { value: 'high', label: 'High', color: '#EF4444' },
+  { value: 'p1', label: 'Low', color: '#10B981' },
+  { value: 'p2', label: 'Medium', color: '#F59E0B' },
+  { value: 'p3', label: 'High', color: '#EF4444' },
 ];
 
 export const TaskDetailScreen = () => {
@@ -85,12 +85,12 @@ export const TaskDetailScreen = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>('pending');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [priority, setPriority] = useState<TaskPriority>('p2');
   const [dueAt, setDueAt] = useState<string | null>(null);
   const [timeInfo, setTimeInfo] = useState(formatRemaining(null));
 
   const canEditAll = role === 'admin';
-  const canEditStatusOnly = role === 'direct_sales_associate';
+  const canEditStatusOnly = role === 'staff';
   const isRunning = task?.started_at !== null;
 
   const { leads: taskLeads } = useLeads({
@@ -321,7 +321,7 @@ export const TaskDetailScreen = () => {
               isRunning && styles.controlButtonDisabled,
             ]}
             onPress={handleStart}
-            disabled={isRunning || status === 'completed'}
+            disabled={isRunning || status === 'closed'}
           >
             <Text style={styles.controlButtonIcon}>▶</Text>
             <Text style={styles.controlButtonText}>Start</Text>
@@ -344,10 +344,10 @@ export const TaskDetailScreen = () => {
             style={[
               styles.controlButton,
               styles.completeButton,
-              status === 'completed' && styles.controlButtonDisabled,
+              status === 'closed' && styles.controlButtonDisabled,
             ]}
             onPress={handleComplete}
-            disabled={status === 'completed'}
+            disabled={status === 'closed'}
           >
             <Text style={styles.controlButtonIcon}>✓</Text>
             <Text style={styles.controlButtonText}>Complete</Text>

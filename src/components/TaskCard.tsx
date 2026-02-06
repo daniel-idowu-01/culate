@@ -157,15 +157,15 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
           </View>
 
           {/* Assignee info */}
-          {showAssignee && (
+          {showAssignee && task.assigned_to_user_id && (
             <View style={styles.assigneeRow}>
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarText}>
-                  {task.assigned_to.substring(0, 2).toUpperCase()}
+                  {task.assigned_to_user_id.slice(0, 2).toUpperCase()}
                 </Text>
               </View>
               <Text style={styles.assigneeText}>
-                Assigned to: {task.assigned_to.substring(0, 8)}...
+                Assigned to: {task.assigned_to_user_id.slice(0, 8)}…
               </Text>
             </View>
           )}

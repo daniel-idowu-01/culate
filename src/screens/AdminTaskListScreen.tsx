@@ -47,8 +47,8 @@ export const AdminTaskListScreen = () => {
   const taskStats = {
     total: tasks.length,
     pending: tasks.filter(t => t.status === 'pending').length,
-    in_progress: tasks.filter(t => t.status === 'in_progress').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
+    in_progress: tasks.filter(t => t.status === 'open').length,
+    completed: tasks.filter(t => t.status === 'closed').length,
     overdue: tasks.filter(t => t.status === 'overdue').length,
   };
 

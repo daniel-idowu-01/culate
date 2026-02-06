@@ -20,9 +20,9 @@ import { useAuth } from '../context/AuthContext';
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Low', color: '#10B981' },
-  { value: 'medium', label: 'Medium', color: '#F59E0B' },
-  { value: 'high', label: 'High', color: '#EF4444' },
+  { value: 'p1', label: 'Low', color: '#10B981' },
+  { value: 'p2', label: 'Medium', color: '#F59E0B' },
+  { value: 'p3', label: 'High', color: '#EF4444' },
 ];
 
 const QUICK_DURATIONS = [
@@ -39,7 +39,7 @@ export const CreateTaskScreen = () => {
   
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [priority, setPriority] = useState<TaskPriority>('p2');
   const [dueAt, setDueAt] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<{ title?: string; dueAt?: string }>({});
@@ -86,7 +86,7 @@ export const CreateTaskScreen = () => {
         description: description.trim() || null,
         priority,
         created_by: userId,
-        assigned_to: userId,
+        assigned_to_user_id: userId,
         due_at: dueAt ? new Date(dueAt).toISOString() : null,
       })
       .select()
