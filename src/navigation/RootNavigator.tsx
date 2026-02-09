@@ -68,7 +68,11 @@ export const RootNavigator = () => {
           <>
             <RootStack.Screen
               name="Main"
-              component={role === 'admin' ? AdminTabs : AssociateTabs}
+              component={
+                role === 'admin' || role === 'supervisor' || role === 'department_head'
+                  ? AdminTabs
+                  : AssociateTabs
+              }
               options={{ headerShown: false }}
             />
             <RootStack.Screen
@@ -92,4 +96,3 @@ export const RootNavigator = () => {
     </NavigationContainer>
   );
 };
-

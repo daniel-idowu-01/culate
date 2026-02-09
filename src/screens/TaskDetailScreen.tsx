@@ -8,19 +8,33 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { supabase } from '../api/supabaseClient';
-import type { Task, TaskStatus, TaskPriority, Lead } from '../types';
+import type {
+  Task,
+  TaskStatus,
+  TaskPriority,
+  Lead,
+  TaskComment,
+  TaskAttachment,
+  TaskContact,
+  Profile,
+} from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useLeads } from '../hooks/useLeads';
+import * as DocumentPicker from 'expo-document-picker';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-const formatRemaining = (dueAt: string | null) => {
+const formatRemaining = (dueAt: string | null, status: TaskStatus) => {
+  if (status === 'closed') {
+    return { text: 'Closed', isOverdue: false, isUrgent: false, hours: 0, minutes: 0, seconds: 0 };
+  }
   if (!dueAt) return { text: 'No deadline', isOverdue: false, isUrgent: false };
   const due = new Date(dueAt).getTime();
   const now = Date.now();
@@ -29,6 +43,17 @@ const formatRemaining = (dueAt: string | null) => {
   const isOverdue = diffSec < 0;
   const isUrgent = diffSec > 0 && diffSec < 3600;
   
+  if (isOverdue) {
+    return {
+      text: '00:00:00',
+      isOverdue: true,
+      isUrgent: false,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+    };
+  }
+
   const sign = diffSec >= 0 ? '' : '-';
   const absSec = Math.abs(diffSec);
   const hours = Math.floor(absSec / 3600);
@@ -69,29 +94,54 @@ const LeadOutcomeCard = ({ lead }: { lead: Lead }) => {
 };
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Low', color: '#10B981' },
-  { value: 'medium', label: 'Medium', color: '#F59E0B' },
-  { value: 'high', label: 'High', color: '#EF4444' },
+  { value: 'p1', label: 'P1', color: '#EF4444' },
+  { value: 'p2', label: 'P2', color: '#F59E0B' },
+  { value: 'p3', label: 'P3', color: '#10B981' },
 ];
 
 export const TaskDetailScreen = () => {
   const route = useRoute<TaskDetailRoute>();
   const navigation = useNavigation<Nav>();
   const { role, session } = useAuth();
+  const isManager = role === 'admin' || role === 'supervisor' || role === 'department_head';
   
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<TaskStatus>('pending');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [status, setStatus] = useState<TaskStatus>('open');
+  const [priority, setPriority] = useState<TaskPriority>('p2');
   const [dueAt, setDueAt] = useState<string | null>(null);
-  const [timeInfo, setTimeInfo] = useState(formatRemaining(null));
+  const [assignedTo, setAssignedTo] = useState('');
+  const [department, setDepartment] = useState('Sales');
+  const [timeInfo, setTimeInfo] = useState(formatRemaining(null, 'open'));
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [contacts, setContacts] = useState<TaskContact[]>([]);
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactNotes, setContactNotes] = useState('');
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [commentSaving, setCommentSaving] = useState(false);
+  const [attachmentSaving, setAttachmentSaving] = useState(false);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactSaving, setContactSaving] = useState(false);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showUserList, setShowUserList] = useState(false);
 
-  const canEditAll = role === 'admin';
-  const canEditStatusOnly = role === 'direct_sales_associate';
+  const canEditAll = isManager;
   const isRunning = task?.started_at !== null;
+  const canManageContacts =
+    !!session &&
+    !!task &&
+    (session.user.id === task.assigned_to ||
+      session.user.id === task.created_by ||
+      isManager);
 
   const { leads: taskLeads } = useLeads({
     scope: role === 'admin' ? 'all' : 'mine',
@@ -117,7 +167,9 @@ export const TaskDetailScreen = () => {
         setStatus(t.status);
         setPriority(t.priority);
         setDueAt(t.due_at);
-        setTimeInfo(formatRemaining(t.due_at));
+        setAssignedTo(t.assigned_to);
+        setDepartment(t.department ?? 'Sales');
+        setTimeInfo(formatRemaining(t.due_at, t.status));
       }
       setLoading(false);
     };
@@ -125,12 +177,187 @@ export const TaskDetailScreen = () => {
     fetchTask();
   }, [route.params.taskId]);
 
+  const fetchComments = async (taskId: string) => {
+    setCommentsLoading(true);
+    const { data, error } = await supabase
+      .from('task_comments')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Error loading comments', error.message);
+    } else {
+      setComments((data ?? []) as TaskComment[]);
+    }
+    setCommentsLoading(false);
+  };
+
+  const fetchUsers = async () => {
+    if (!isManager) return;
+    setUsersLoading(true);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, role, staff_id, department, created_at')
+      .order('created_at', { ascending: false });
+    if (!error) {
+      setUsers((data ?? []) as Profile[]);
+    }
+    setUsersLoading(false);
+  };
+
+  const fetchAttachments = async (taskId: string) => {
+    setAttachmentsLoading(true);
+    const { data, error } = await supabase
+      .from('task_attachments')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Error loading attachments', error.message);
+    } else {
+      setAttachments((data ?? []) as TaskAttachment[]);
+    }
+    setAttachmentsLoading(false);
+  };
+
+  const fetchContacts = async (taskId: string) => {
+    setContactsLoading(true);
+    const { data, error } = await supabase
+      .from('task_contacts')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Error loading contacts', error.message);
+    } else {
+      setContacts((data ?? []) as TaskContact[]);
+    }
+    setContactsLoading(false);
+  };
+
+  useEffect(() => {
+    if (!task?.id) return;
+    fetchComments(task.id);
+    fetchAttachments(task.id);
+    fetchContacts(task.id);
+  }, [task?.id]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [isManager]);
+
   useEffect(() => {
     const id = setInterval(() => {
-      setTimeInfo(formatRemaining(dueAt));
+      setTimeInfo(formatRemaining(dueAt, status));
     }, 1000);
     return () => clearInterval(id);
-  }, [dueAt]);
+  }, [dueAt, status]);
+
+  const handleAddComment = async () => {
+    if (!task || !session || !commentText.trim()) return;
+    setCommentSaving(true);
+    const { data, error } = await supabase
+      .from('task_comments')
+      .insert({
+        task_id: task.id,
+        body: commentText.trim(),
+        created_by: session.user.id,
+      })
+      .select()
+      .single();
+    setCommentSaving(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    setComments((prev) => [data as TaskComment, ...prev]);
+    setCommentText('');
+  };
+
+  const handleAddAttachment = async () => {
+    if (!task || !session) return;
+    setAttachmentSaving(true);
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      setAttachmentSaving(false);
+      return;
+    }
+
+    const file = result.assets[0];
+    const fileName = file.name ?? `attachment-${Date.now()}`;
+    const path = `${task.id}/${Date.now()}-${fileName}`;
+
+    try {
+      const response = await fetch(file.uri);
+      const blob = await response.blob();
+      const { error: uploadError } = await supabase.storage
+        .from('task-attachments')
+        .upload(path, blob, {
+          contentType: file.mimeType ?? 'application/octet-stream',
+          upsert: false,
+        });
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicData } = supabase.storage
+        .from('task-attachments')
+        .getPublicUrl(path);
+      const fileUrl = publicData.publicUrl;
+
+      const { data, error } = await supabase
+        .from('task_attachments')
+        .insert({
+          task_id: task.id,
+          file_name: fileName,
+          file_url: fileUrl,
+          mime_type: file.mimeType ?? null,
+          uploaded_by: session.user.id,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      setAttachments((prev) => [data as TaskAttachment, ...prev]);
+    } catch (err: any) {
+      Alert.alert('Upload Failed', err?.message ?? 'Unable to upload attachment');
+    } finally {
+      setAttachmentSaving(false);
+    }
+  };
+
+  const handleAddContact = async () => {
+    if (!task || !session) return;
+    if (!contactName.trim() || (!contactPhone.trim() && !contactEmail.trim())) {
+      Alert.alert('Missing info', 'Provide a name and at least one contact detail.');
+      return;
+    }
+    setContactSaving(true);
+    const { data, error } = await supabase
+      .from('task_contacts')
+      .insert({
+        task_id: task.id,
+        name: contactName.trim(),
+        phone: contactPhone.trim() || null,
+        email: contactEmail.trim() || null,
+        notes: contactNotes.trim() || null,
+        created_by: session.user.id,
+      })
+      .select()
+      .single();
+    setContactSaving(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    setContacts((prev) => [data as TaskContact, ...prev]);
+    setContactName('');
+    setContactPhone('');
+    setContactEmail('');
+    setContactNotes('');
+  };
 
   const handleSave = async () => {
     if (!task) return;
@@ -142,9 +369,8 @@ export const TaskDetailScreen = () => {
       updates.description = description;
       updates.priority = priority;
       updates.due_at = dueAt;
-    }
-    if (canEditAll || canEditStatusOnly) {
-      updates.status = status;
+      updates.assigned_to = assignedTo;
+      updates.department = department;
     }
 
     const { error, data } = await supabase
@@ -166,12 +392,12 @@ export const TaskDetailScreen = () => {
     Alert.alert('Success', 'Task updated successfully');
   };
 
-  const handleStart = async () => {
+  const handleOpen = async () => {
     if (!task || !session) return;
     const now = new Date().toISOString();
     const { error, data } = await supabase
       .from('tasks')
-      .update({ started_at: now, status: 'in_progress' })
+      .update({ started_at: now, status: 'open' })
       .eq('id', task.id)
       .select()
       .single();
@@ -186,7 +412,7 @@ export const TaskDetailScreen = () => {
     setStatus(updated.status);
   };
 
-  const handlePause = async () => {
+  const handlePending = async () => {
     if (!task) return;
     const now = new Date();
     let total = task.time_spent_seconds;
@@ -202,6 +428,7 @@ export const TaskDetailScreen = () => {
       .update({
         started_at: null,
         time_spent_seconds: total,
+        status: 'pending',
       })
       .eq('id', task.id)
       .select()
@@ -216,8 +443,23 @@ export const TaskDetailScreen = () => {
     setTask(updated);
   };
 
-  const handleComplete = async () => {
-    if (!task) return;
+  const handleClose = async () => {
+    if (!task || !session) return;
+    if (!isManager) {
+      Alert.alert('Approval Required', 'Only supervisors or department heads can close tasks.');
+      return;
+    }
+    const confirm = await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        'Close Task',
+        'This will mark the task as closed and record your approval.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Close', style: 'destructive', onPress: () => resolve(true) },
+        ]
+      );
+    });
+    if (!confirm) return;
     const now = new Date();
     let total = task.time_spent_seconds;
     
@@ -227,16 +469,33 @@ export const TaskDetailScreen = () => {
       total += diffSec;
     }
     
-    const { error, data } = await supabase
+    let { error, data } = await supabase
       .from('tasks')
       .update({
         started_at: null,
         time_spent_seconds: total,
-        status: 'completed',
+        status: 'closed',
+        closed_approved_by: session.user.id,
+        closed_at: now.toISOString(),
       })
       .eq('id', task.id)
       .select()
       .single();
+
+    if (error && (error.message.includes('closed_approved_by') || error.message.includes('closed_at'))) {
+      const retry = await supabase
+        .from('tasks')
+        .update({
+          started_at: null,
+          time_spent_seconds: total,
+          status: 'closed',
+        })
+        .eq('id', task.id)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
     
     if (error) {
       Alert.alert('Error', error.message);
@@ -247,7 +506,7 @@ export const TaskDetailScreen = () => {
     setTask(updated);
     setStatus(updated.status);
     
-    Alert.alert('Completed! 🎉', 'Great job finishing this task!');
+    Alert.alert('Closed', 'Task closed with supervisor approval.');
   };
 
   if (loading || !task) {
@@ -312,7 +571,7 @@ export const TaskDetailScreen = () => {
       </View>
 
       {/* Task Controls */}
-      {(canEditAll || canEditStatusOnly) && (
+      {isManager && (
         <View style={styles.controlsCard}>
           <TouchableOpacity
             style={[
@@ -320,11 +579,11 @@ export const TaskDetailScreen = () => {
               styles.startButton,
               isRunning && styles.controlButtonDisabled,
             ]}
-            onPress={handleStart}
-            disabled={isRunning || status === 'completed'}
+            onPress={handleOpen}
+            disabled={isRunning || status === 'closed'}
           >
             <Text style={styles.controlButtonIcon}>▶</Text>
-            <Text style={styles.controlButtonText}>Start</Text>
+            <Text style={styles.controlButtonText}>Open</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -333,24 +592,24 @@ export const TaskDetailScreen = () => {
               styles.pauseButton,
               !isRunning && styles.controlButtonDisabled,
             ]}
-            onPress={handlePause}
-            disabled={!isRunning}
+            onPress={handlePending}
+            disabled={!isRunning && status === 'pending'}
           >
             <Text style={styles.controlButtonIcon}>⏸</Text>
-            <Text style={styles.controlButtonText}>Pause</Text>
+            <Text style={styles.controlButtonText}>Pending</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
             style={[
               styles.controlButton,
               styles.completeButton,
-              status === 'completed' && styles.controlButtonDisabled,
+              status === 'closed' && styles.controlButtonDisabled,
             ]}
-            onPress={handleComplete}
-            disabled={status === 'completed'}
+            onPress={handleClose}
+            disabled={status === 'closed'}
           >
             <Text style={styles.controlButtonIcon}>✓</Text>
-            <Text style={styles.controlButtonText}>Complete</Text>
+            <Text style={styles.controlButtonText}>Close</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -359,9 +618,7 @@ export const TaskDetailScreen = () => {
       <View style={styles.detailsCard}>
         <View style={styles.statusRow}>
           <View style={styles.statusBadge}>
-            <Text style={styles.statusText}>
-              {status.replace('_', ' ').toUpperCase()}
-            </Text>
+            <Text style={styles.statusText}>{status.toUpperCase()}</Text>
           </View>
           <View style={[styles.priorityBadge, { backgroundColor: priorityConfig?.color }]}>
             <Text style={styles.priorityBadgeText}>
@@ -395,7 +652,7 @@ export const TaskDetailScreen = () => {
           />
         </View>
 
-        {/* Priority (Admin only) */}
+        {/* Priority (Managers only) */}
         {canEditAll && (
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Priority</Text>
@@ -425,7 +682,71 @@ export const TaskDetailScreen = () => {
           </View>
         )}
 
-        {/* Due Date (Admin only) */}
+        {/* Assignee (Managers only) */}
+        {canEditAll && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Assigned To</Text>
+            <TouchableOpacity
+              style={[styles.input, styles.dropdown]}
+              onPress={() => setShowUserList((prev) => !prev)}
+              disabled={usersLoading}
+            >
+              <Text style={styles.dropdownText}>
+                {assignedTo
+                  ? (() => {
+                      const user = users.find((u) => u.id === assignedTo);
+                      const email = user?.email ?? '';
+                      const emailName = email.includes('@') ? email.split('@')[0] : '';
+                      return user?.full_name || emailName || assignedTo;
+                    })()
+                  : 'Select a user'}
+              </Text>
+              <Text style={styles.dropdownCaret}>{showUserList ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {showUserList && (
+              <View style={styles.dropdownList}>
+                {usersLoading ? (
+                  <Text style={styles.helperText}>Loading users...</Text>
+                ) : users.length === 0 ? (
+                  <Text style={styles.helperText}>No users found.</Text>
+                ) : (
+                  users.map((user) => (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setAssignedTo(user.id);
+                        setShowUserList(false);
+                      }}
+                    >
+                      <Text style={styles.dropdownItemText}>
+                        {(user.full_name || (user.email ? user.email.split('@')[0] : null) || user.id.substring(0, 8) + '...')}
+                        {' · '}
+                        {user.role}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Department (Managers only) */}
+        {canEditAll && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Department</Text>
+            <TextInput
+              style={styles.input}
+              value={department}
+              onChangeText={setDepartment}
+              placeholder="Sales"
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+        )}
+
+        {/* Due Date (Managers only) */}
         {canEditAll && (
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Due Date (ISO format)</Text>
@@ -436,6 +757,16 @@ export const TaskDetailScreen = () => {
               placeholder="2026-02-05T18:00:00.000Z"
               placeholderTextColor="#9CA3AF"
             />
+          </View>
+        )}
+
+        {task.closed_approved_by && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Supervisor Approval</Text>
+            <Text style={styles.helperText}>
+              Approved by {task.closed_approved_by.substring(0, 8)}... on{' '}
+              {task.closed_at ? new Date(task.closed_at).toLocaleString() : 'N/A'}
+            </Text>
           </View>
         )}
 
@@ -451,8 +782,164 @@ export const TaskDetailScreen = () => {
         </TouchableOpacity>
       </View>
 
+      {/* Comments */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Comments</Text>
+        <TextInput
+          style={[styles.input, styles.textArea]}
+          placeholder="Add a comment..."
+          placeholderTextColor="#9CA3AF"
+          value={commentText}
+          onChangeText={setCommentText}
+          multiline
+          numberOfLines={3}
+          textAlignVertical="top"
+        />
+        <TouchableOpacity
+          style={[styles.saveButton, commentSaving && styles.saveButtonDisabled]}
+          onPress={handleAddComment}
+          disabled={commentSaving || !commentText.trim()}
+        >
+          <Text style={styles.saveButtonText}>
+            {commentSaving ? 'Adding...' : 'Add Comment'}
+          </Text>
+        </TouchableOpacity>
+        {commentsLoading ? (
+          <Text style={styles.helperText}>Loading comments...</Text>
+        ) : comments.length === 0 ? (
+          <Text style={styles.helperText}>No comments yet.</Text>
+        ) : (
+          comments.map((comment) => (
+            <View key={comment.id} style={styles.commentItem}>
+              <Text style={styles.commentBody}>{comment.body}</Text>
+              <Text style={styles.commentMeta}>
+                {comment.created_by.substring(0, 8)}... ·{' '}
+                {new Date(comment.created_at).toLocaleString()}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Attachments */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Attachments</Text>
+        <TouchableOpacity
+          style={[styles.saveButton, attachmentSaving && styles.saveButtonDisabled]}
+          onPress={handleAddAttachment}
+          disabled={attachmentSaving}
+        >
+          <Text style={styles.saveButtonText}>
+            {attachmentSaving ? 'Uploading...' : 'Upload Attachment'}
+          </Text>
+        </TouchableOpacity>
+        {attachmentsLoading ? (
+          <Text style={styles.helperText}>Loading attachments...</Text>
+        ) : attachments.length === 0 ? (
+          <Text style={styles.helperText}>No attachments yet.</Text>
+        ) : (
+          attachments.map((attachment) => (
+            <View key={attachment.id} style={styles.attachmentItem}>
+              <Text style={styles.attachmentName}>{attachment.file_name}</Text>
+              {attachment.mime_type?.startsWith('image/') ? (
+                <Image
+                  source={{ uri: attachment.file_url }}
+                  style={styles.attachmentPreview}
+                  resizeMode="cover"
+                />
+              ) : null}
+              <Text style={styles.attachmentUrl}>{attachment.file_url}</Text>
+              <Text style={styles.commentMeta}>
+                {attachment.uploaded_by.substring(0, 8)}... ·{' '}
+                {new Date(attachment.created_at).toLocaleString()}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Contacts */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Contacts</Text>
+        {canManageContacts ? (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Contact name"
+              placeholderTextColor="#9CA3AF"
+              value={contactName}
+              onChangeText={setContactName}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Phone (optional)"
+              placeholderTextColor="#9CA3AF"
+              value={contactPhone}
+              onChangeText={setContactPhone}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Email (optional)"
+              placeholderTextColor="#9CA3AF"
+              value={contactEmail}
+              onChangeText={setContactEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Notes (optional)"
+              placeholderTextColor="#9CA3AF"
+              value={contactNotes}
+              onChangeText={setContactNotes}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+            <TouchableOpacity
+              style={[styles.saveButton, contactSaving && styles.saveButtonDisabled]}
+              onPress={handleAddContact}
+              disabled={contactSaving}
+            >
+              <Text style={styles.saveButtonText}>
+                {contactSaving ? 'Saving...' : 'Add Contact'}
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <Text style={styles.helperText}>
+            Only the task owner can add contacts.
+          </Text>
+        )}
+
+        {contactsLoading ? (
+          <Text style={styles.helperText}>Loading contacts...</Text>
+        ) : contacts.length === 0 ? (
+          <Text style={styles.helperText}>No contacts yet.</Text>
+        ) : (
+          contacts.map((contact) => (
+            <View key={contact.id} style={styles.commentItem}>
+              <Text style={styles.commentBody}>{contact.name}</Text>
+              {contact.phone ? (
+                <Text style={styles.attachmentUrl}>{contact.phone}</Text>
+              ) : null}
+              {contact.email ? (
+                <Text style={styles.attachmentUrl}>{contact.email}</Text>
+              ) : null}
+              {contact.notes ? (
+                <Text style={styles.commentBody}>{contact.notes}</Text>
+              ) : null}
+              <Text style={styles.commentMeta}>
+                {contact.created_by.substring(0, 8)}... ·{' '}
+                {new Date(contact.created_at).toLocaleString()}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
       {/* Task Outcome - Potential customers linked to this task */}
-      {(canEditAll || canEditStatusOnly) && (
+      {isManager && (
         <View style={styles.outcomeCard}>
           <View style={styles.outcomeHeader}>
             <Text style={styles.outcomeTitle}>Task Outcome</Text>
@@ -642,6 +1129,10 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 8,
   },
+  helperText: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
   input: {
     borderWidth: 1.5,
     borderColor: '#D1D5DB',
@@ -663,6 +1154,37 @@ const styles = StyleSheet.create({
   priorityContainer: {
     flexDirection: 'row',
     gap: 10,
+  },
+  dropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownText: {
+    fontSize: 15,
+    color: '#111827',
+  },
+  dropdownCaret: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  dropdownList: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: '#374151',
   },
   priorityButton: {
     flex: 1,
@@ -697,6 +1219,62 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  commentItem: {
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 12,
+    marginTop: 12,
+  },
+  commentBody: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  commentMeta: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 6,
+  },
+  attachmentItem: {
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 12,
+    marginTop: 12,
+  },
+  attachmentName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  attachmentPreview: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    marginTop: 10,
+    backgroundColor: '#F3F4F6',
+  },
+  attachmentUrl: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
   },
   outcomeCard: {
     backgroundColor: '#FFFFFF',

@@ -21,9 +21,9 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const STATUS_FILTERS = [
   { label: 'All', value: 'all' },
+  { label: 'Open', value: 'open' },
   { label: 'Pending', value: 'pending' },
-  { label: 'Active', value: 'in_progress' },
-  { label: 'Done', value: 'completed' },
+  { label: 'Closed', value: 'closed' },
   { label: 'Overdue', value: 'overdue' },
 ];
 
@@ -35,21 +35,29 @@ export const AdminTaskListScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
 
+  const isOverdue = (dueAt: string, status: string) => {
+    if (!dueAt || status === 'closed') return false;
+    return new Date(dueAt).getTime() < Date.now();
+  };
+
   const filteredTasks = tasks.filter((task) => {
     const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (task.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
     
-    const matchesStatus = selectedStatus === 'all' || task.status === selectedStatus;
+    const matchesStatus =
+      selectedStatus === 'all' ||
+      (selectedStatus === 'overdue' && isOverdue(task.due_at, task.status)) ||
+      task.status === selectedStatus;
     
     return matchesSearch && matchesStatus;
   });
 
   const taskStats = {
     total: tasks.length,
+    open: tasks.filter(t => t.status === 'open').length,
     pending: tasks.filter(t => t.status === 'pending').length,
-    in_progress: tasks.filter(t => t.status === 'in_progress').length,
-    completed: tasks.filter(t => t.status === 'completed').length,
-    overdue: tasks.filter(t => t.status === 'overdue').length,
+    closed: tasks.filter(t => t.status === 'closed').length,
+    overdue: tasks.filter(t => isOverdue(t.due_at, t.status)).length,
   };
 
   const handleSignOut = async () => {
@@ -77,16 +85,16 @@ export const AdminTaskListScreen = () => {
       {/* Stats Cards */}
       <View style={styles.statsContainer}>
         <View style={[styles.statCard, styles.statPending]}>
+          <Text style={styles.statNumber}>{taskStats.open}</Text>
+          <Text style={styles.statLabel}>Open</Text>
+        </View>
+        <View style={[styles.statCard, styles.statActive]}>
           <Text style={styles.statNumber}>{taskStats.pending}</Text>
           <Text style={styles.statLabel}>Pending</Text>
         </View>
-        <View style={[styles.statCard, styles.statActive]}>
-          <Text style={styles.statNumber}>{taskStats.in_progress}</Text>
-          <Text style={styles.statLabel}>Active</Text>
-        </View>
         <View style={[styles.statCard, styles.statCompleted]}>
-          <Text style={styles.statNumber}>{taskStats.completed}</Text>
-          <Text style={styles.statLabel}>Done</Text>
+          <Text style={styles.statNumber}>{taskStats.closed}</Text>
+          <Text style={styles.statLabel}>Closed</Text>
         </View>
         <View style={[styles.statCard, styles.statOverdue]}>
           <Text style={styles.statNumber}>{taskStats.overdue}</Text>

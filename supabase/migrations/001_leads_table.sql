@@ -1,4 +1,4 @@
--- Migration: Add leads (potential customers) table for direct_sales_associate
+-- Migration: Add leads (potential customers) table for staff
 -- Run this if you already have an existing database and need to add the leads feature
 
 -- Potential customers (leads) table - linked to tasks for outcome tracking

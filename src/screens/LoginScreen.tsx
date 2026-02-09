@@ -106,7 +106,7 @@ export const LoginScreen = () => {
               <View style={styles.iconContainer}>
                 <Text style={styles.icon}>✓</Text>
               </View>
-              <Text style={styles.title}>Task Tracker</Text>
+              <Text style={styles.title}>Sales Task Tracker</Text>
               <Text style={styles.subtitle}>
                 {mode === 'signin' 
                   ? 'Welcome back! Sign in to continue' 

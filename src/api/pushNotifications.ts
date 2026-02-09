@@ -3,7 +3,6 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from './supabaseClient';
 
-// Configure how notifications are handled when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -14,21 +13,24 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * Register device for push notifications and save token to Supabase
- */
 export async function registerForPushNotifications(userId: string): Promise<string | null> {
   if (!Device.isDevice) {
     console.log('Push notifications only work on physical devices');
     return null;
   }
 
+  const projectId = process.env.EXPO_PUBLIC_PROJECT_ID;
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!projectId || !uuidPattern.test(projectId)) {
+    console.log('Missing or invalid EXPO_PUBLIC_PROJECT_ID. Skipping push registration.');
+    return null;
+  }
+
   try {
-    // Check existing permissions
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
-    // Request permission if not granted
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
@@ -39,16 +41,13 @@ export async function registerForPushNotifications(userId: string): Promise<stri
       return null;
     }
 
-    // Get push token
     const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: process.env.EXPO_PUBLIC_PROJECT_ID, // Your Expo project ID
+      projectId,
     });
     const token = tokenData.data;
 
-    // Save token to Supabase
     await saveTokenToSupabase(userId, token);
 
-    // Configure notification channels for Android
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('task-reminders', {
         name: 'Task Reminders',
@@ -65,9 +64,6 @@ export async function registerForPushNotifications(userId: string): Promise<stri
   }
 }
 
-/**
- * Save push token to Supabase devices table
- */
 async function saveTokenToSupabase(userId: string, token: string) {
   try {
     const { error } = await supabase
@@ -91,9 +87,6 @@ async function saveTokenToSupabase(userId: string, token: string) {
   }
 }
 
-/**
- * Schedule a local notification for a task deadline
- */
 export async function scheduleTaskDeadlineNotification(
   taskId: string,
   taskTitle: string,
@@ -103,20 +96,17 @@ export async function scheduleTaskDeadlineNotification(
     const dueDate = new Date(dueAt);
     const now = new Date();
 
-    // Don't schedule if the task is already overdue
     if (dueDate <= now) {
       return;
     }
 
-    // Cancel any existing notifications for this task
     await cancelTaskNotifications(taskId);
 
-    // Schedule notification 1 hour before deadline
     const oneHourBefore = new Date(dueDate.getTime() - 60 * 60 * 1000);
     if (oneHourBefore > now) {
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: '⏰ Task Deadline Approaching',
+          title: 'Task deadline approaching',
           body: `"${taskTitle}" is due in 1 hour`,
           data: { taskId, type: 'warning' },
           sound: true,
@@ -130,12 +120,11 @@ export async function scheduleTaskDeadlineNotification(
       });
     }
 
-    // Schedule notification 15 minutes before deadline
     const fifteenMinBefore = new Date(dueDate.getTime() - 15 * 60 * 1000);
     if (fifteenMinBefore > now) {
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: '🚨 Task Deadline Soon!',
+          title: 'Task deadline soon',
           body: `"${taskTitle}" is due in 15 minutes`,
           data: { taskId, type: 'urgent' },
           sound: true,
@@ -149,11 +138,10 @@ export async function scheduleTaskDeadlineNotification(
       });
     }
 
-    // Schedule notification at deadline
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: '⚠️ Task Overdue',
-        body: `"${taskTitle}" deadline has passed!`,
+        title: 'Task overdue',
+        body: `"${taskTitle}" deadline has passed`,
         data: { taskId, type: 'overdue' },
         sound: true,
         priority: Notifications.AndroidNotificationPriority.MAX,
@@ -171,13 +159,10 @@ export async function scheduleTaskDeadlineNotification(
   }
 }
 
-/**
- * Cancel all notifications for a specific task
- */
 export async function cancelTaskNotifications(taskId: string) {
   try {
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
-    
+
     const taskNotificationIds = scheduledNotifications
       .filter((notification) => notification.identifier.startsWith(`task-${taskId}`))
       .map((notification) => notification.identifier);
@@ -190,50 +175,39 @@ export async function cancelTaskNotifications(taskId: string) {
   }
 }
 
-/**
- * Update notifications when task status changes
- */
 export async function updateTaskNotifications(
   taskId: string,
   taskTitle: string,
   status: string,
   dueAt: string | null
 ) {
-  // Cancel existing notifications
   await cancelTaskNotifications(taskId);
 
-  // Only schedule new notifications if task is not completed and has a deadline
-  if (status !== 'completed' && dueAt) {
+  if (status !== 'closed' && dueAt) {
     await scheduleTaskDeadlineNotification(taskId, taskTitle, dueAt);
   }
 }
 
-/**
- * Send immediate notification for task status change
- */
-export async function sendTaskStatusNotification(
-  taskTitle: string,
-  status: string
-) {
+export async function sendTaskStatusNotification(taskTitle: string, status: string) {
   let title = '';
   let body = '';
-  let emoji = '';
+  let icon = '';
 
   switch (status) {
-    case 'completed':
-      emoji = '✅';
-      title = 'Task Completed!';
-      body = `Great job! You completed "${taskTitle}"`;
+    case 'closed':
+      icon = 'x';
+      title = 'Task closed';
+      body = `Task "${taskTitle}" was closed`;
       break;
-    case 'in_progress':
-      emoji = '▶️';
-      title = 'Task Started';
-      body = `You started working on "${taskTitle}"`;
+    case 'open':
+      icon = '>';
+      title = 'Task opened';
+      body = `"${taskTitle}" is now open`;
       break;
-    case 'overdue':
-      emoji = '⚠️';
-      title = 'Task Overdue';
-      body = `"${taskTitle}" is now overdue`;
+    case 'pending':
+      icon = '||';
+      title = 'Task pending';
+      body = `"${taskTitle}" is now pending`;
       break;
     default:
       return;
@@ -241,26 +215,20 @@ export async function sendTaskStatusNotification(
 
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: `${emoji} ${title}`,
+      title: `${icon} ${title}`,
       body,
       sound: true,
     },
-    trigger: null, // Send immediately
+    trigger: null,
   });
 }
 
-/**
- * Add notification listener
- */
 export function addNotificationListener(
   callback: (notification: Notifications.Notification) => void
 ) {
   return Notifications.addNotificationReceivedListener(callback);
 }
 
-/**
- * Add notification response listener (when user taps notification)
- */
 export function addNotificationResponseListener(
   callback: (response: Notifications.NotificationResponse) => void
 ) {

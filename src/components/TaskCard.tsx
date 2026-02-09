@@ -16,13 +16,17 @@ const formatRemaining = (dueAt: string | null) => {
   const diffSec = Math.floor(diffMs / 1000);
   const isOverdue = diffSec < 0;
   const isUrgent = diffSec > 0 && diffSec < 3600; // Less than 1 hour
+
+  if (isOverdue) {
+    return { text: '00:00:00', isOverdue: true, isUrgent: false };
+  }
   
   const sign = diffSec >= 0 ? '' : '-';
   const absSec = Math.abs(diffSec);
   const hours = Math.floor(absSec / 3600);
   const minutes = Math.floor((absSec % 3600) / 60);
   const seconds = absSec % 60;
-  
+
   return {
     text: `${sign}${hours.toString().padStart(2, '0')}:${minutes
       .toString()
@@ -34,11 +38,11 @@ const formatRemaining = (dueAt: string | null) => {
 
 const getPriorityColor = (priority: string) => {
   switch (priority) {
-    case 'high':
+    case 'p1':
       return '#EF4444';
-    case 'medium':
+    case 'p2':
       return '#F59E0B';
-    case 'low':
+    case 'p3':
       return '#10B981';
     default:
       return '#6B7280';
@@ -46,20 +50,17 @@ const getPriorityColor = (priority: string) => {
 };
 
 const getStatusConfig = (status: string, isOverdue: boolean) => {
-  // Override status if task is overdue
-  if (isOverdue && status !== 'completed') {
-    return { color: '#EF4444', bg: '#FEE2E2', icon: '⚠', label: 'overdue' };
+  if (isOverdue && status !== 'closed') {
+    return { color: '#EF4444', bg: '#FEE2E2', icon: '!', label: 'overdue' };
   }
-  
+
   switch (status) {
-    case 'completed':
-      return { color: '#10B981', bg: '#D1FAE5', icon: '✓', label: 'completed' };
-    case 'in_progress':
-      return { color: '#3B82F6', bg: '#DBEAFE', icon: '▶', label: 'in progress' };
-    case 'overdue':
-      return { color: '#EF4444', bg: '#FEE2E2', icon: '⚠', label: 'overdue' };
+    case 'closed':
+      return { color: '#10B981', bg: '#D1FAE5', icon: 'x', label: 'closed' };
+    case 'open':
+      return { color: '#3B82F6', bg: '#DBEAFE', icon: '>', label: 'open' };
     default:
-      return { color: '#6B7280', bg: '#F3F4F6', icon: '○', label: 'pending' };
+      return { color: '#6B7280', bg: '#F3F4F6', icon: 'o', label: 'pending' };
   }
 };
 
@@ -94,22 +95,15 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
   const priorityColor = getPriorityColor(task.priority);
 
   return (
-    <Pressable 
+    <Pressable
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
-      <Animated.View 
-        style={[
-          styles.card,
-          { transform: [{ scale: scaleAnim }] }
-        ]}
-      >
-        {/* Priority indicator bar */}
+      <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }] }]}>
         <View style={[styles.priorityBar, { backgroundColor: priorityColor }]} />
-        
+
         <View style={styles.cardContent}>
-          {/* Header with title and status */}
           <View style={styles.headerRow}>
             <Text style={styles.title} numberOfLines={2}>
               {task.title}
@@ -122,28 +116,30 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
             </View>
           </View>
 
-          {/* Description preview */}
           {task.description && (
             <Text style={styles.description} numberOfLines={2}>
               {task.description}
             </Text>
           )}
 
-          {/* Time and metadata row */}
           <View style={styles.metaRow}>
-            <View style={[
-              styles.timerContainer,
-              timeInfo.isOverdue && styles.timerOverdue,
-              timeInfo.isUrgent && styles.timerUrgent,
-            ]}>
+            <View
+              style={[
+                styles.timerContainer,
+                timeInfo.isOverdue && styles.timerOverdue,
+                timeInfo.isUrgent && styles.timerUrgent,
+              ]}
+            >
               <Text style={styles.timerIcon}>
-                {timeInfo.isOverdue ? '⚠' : timeInfo.isUrgent ? '⏰' : '⏱'}
+                {timeInfo.isOverdue ? '!' : timeInfo.isUrgent ? '~' : '.'}
               </Text>
-              <Text style={[
-                styles.timerText,
-                timeInfo.isOverdue && styles.timerTextOverdue,
-                timeInfo.isUrgent && styles.timerTextUrgent,
-              ]}>
+              <Text
+                style={[
+                  styles.timerText,
+                  timeInfo.isOverdue && styles.timerTextOverdue,
+                  timeInfo.isUrgent && styles.timerTextUrgent,
+                ]}
+              >
                 {timeInfo.text}
               </Text>
             </View>
@@ -151,12 +147,11 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
             <View style={styles.priorityContainer}>
               <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />
               <Text style={styles.priorityText}>
-                {task.priority}
+                {task.priority ? task.priority.toUpperCase() : 'N/A'}
               </Text>
             </View>
           </View>
 
-          {/* Assignee info */}
           {showAssignee && (
             <View style={styles.assigneeRow}>
               <View style={styles.avatarPlaceholder}>
@@ -280,7 +275,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#6B7280',
-    textTransform: 'capitalize',
+    textTransform: 'uppercase',
   },
   assigneeRow: {
     flexDirection: 'row',

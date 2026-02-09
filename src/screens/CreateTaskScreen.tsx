@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,15 +14,21 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../api/supabaseClient';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import type { TaskPriority } from '../types';
+import type { TaskPriority, TaskStatus, Profile } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
-  { value: 'low', label: 'Low', color: '#10B981' },
-  { value: 'medium', label: 'Medium', color: '#F59E0B' },
-  { value: 'high', label: 'High', color: '#EF4444' },
+  { value: 'p1', label: 'P1', color: '#EF4444' },
+  { value: 'p2', label: 'P2', color: '#F59E0B' },
+  { value: 'p3', label: 'P3', color: '#10B981' },
+];
+
+const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'closed', label: 'Closed' },
 ];
 
 const QUICK_DURATIONS = [
@@ -35,24 +41,41 @@ const QUICK_DURATIONS = [
 
 export const CreateTaskScreen = () => {
   const navigation = useNavigation<Nav>();
-  const { session } = useAuth();
+  const { session, role } = useAuth();
+  const isAdmin = role === 'admin';
   
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [priority, setPriority] = useState<TaskPriority>('p2');
+  const [status, setStatus] = useState<TaskStatus>('open');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showUserList, setShowUserList] = useState(false);
+  const [department, setDepartment] = useState('Sales');
   const [dueAt, setDueAt] = useState('');
   const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<{ title?: string; dueAt?: string }>({});
+  const [errors, setErrors] = useState<{
+    title?: string;
+    dueAt?: string;
+    assignedTo?: string;
+  }>({});
 
   const validateForm = () => {
-    const newErrors: { title?: string; dueAt?: string } = {};
+    const newErrors: { title?: string; dueAt?: string; assignedTo?: string } = {};
 
     if (!title.trim()) {
       newErrors.title = 'Title is required';
     }
 
-    if (dueAt && isNaN(new Date(dueAt).getTime())) {
-      newErrors.dueAt = 'Invalid date format';
+    if (!dueAt.trim()) {
+      newErrors.dueAt = 'Due date is required';
+    } else if (isNaN(new Date(dueAt).getTime())) {
+      newErrors.dueAt = 'Invalid date format (use ISO)';
+    }
+
+    if (!isAdmin && assignedTo.trim() && assignedTo.trim() !== session?.user.id) {
+      newErrors.assignedTo = 'Only admins can assign tasks to other users';
     }
 
     setErrors(newErrors);
@@ -66,6 +89,22 @@ export const CreateTaskScreen = () => {
     setErrors({ ...errors, dueAt: undefined });
   };
 
+  useEffect(() => {
+    const loadUsers = async () => {
+      if (!session || !isAdmin) return;
+      setUsersLoading(true);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, staff_id, department, created_at')
+        .order('created_at', { ascending: false });
+      if (!error) {
+        setUsers((data ?? []) as Profile[]);
+      }
+      setUsersLoading(false);
+    };
+    loadUsers();
+  }, [session, isAdmin]);
+
   const handleCreate = async () => {
     if (!session) {
       Alert.alert('Error', 'You must be signed in to create tasks');
@@ -78,19 +117,53 @@ export const CreateTaskScreen = () => {
 
     setSaving(true);
     const userId = session.user.id;
+    const assignee = isAdmin ? (assignedTo.trim() || userId) : userId;
     
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert({
-        title: title.trim(),
-        description: description.trim() || null,
-        priority,
-        created_by: userId,
-        assigned_to: userId,
-        due_at: dueAt ? new Date(dueAt).toISOString() : null,
-      })
-      .select()
-      .single();
+    const closedPayload =
+      status === 'closed' && isAdmin
+        ? { closed_approved_by: userId, closed_at: new Date().toISOString() }
+        : {};
+
+    const basePayload: Record<string, unknown> = {
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      status,
+      created_by: userId,
+      assigned_to: assignee,
+      due_at: new Date(dueAt).toISOString(),
+      ...closedPayload,
+    };
+
+    let payload: Record<string, unknown> = {
+      ...basePayload,
+      department: department.trim() || 'Sales',
+    };
+
+    let { data, error } = await supabase.from('tasks').insert(payload).select().single();
+
+    if (error) {
+      const message = error.message;
+      if (message.includes('department')) {
+        const { department: _department, ...rest } = payload;
+        payload = rest;
+      }
+      if (message.includes('priority')) {
+        const { priority: _priority, ...rest } = payload;
+        payload = rest;
+      }
+      if (message.includes('status')) {
+        const { status: _status, ...rest } = payload;
+        payload = rest;
+      }
+      if (message.includes('closed_approved_by') || message.includes('closed_at')) {
+        const { closed_approved_by: _approved, closed_at: _closedAt, ...rest } = payload;
+        payload = rest;
+      }
+      const retry = await supabase.from('tasks').insert(payload).select().single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     setSaving(false);
 
@@ -122,9 +195,7 @@ export const CreateTaskScreen = () => {
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Create New Task</Text>
-          <Text style={styles.headerSubtitle}>
-            Fill in the details below to create a task
-          </Text>
+          <Text style={styles.headerSubtitle}>Fill in the details below to create a task</Text>
         </View>
 
         {/* Title Input */}
@@ -200,6 +271,105 @@ export const CreateTaskScreen = () => {
           </View>
         </View>
 
+        {/* Status Selection (Manager only) */}
+        {isAdmin && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Status</Text>
+            <View style={styles.statusContainer}>
+              {STATUS_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.statusButton,
+                    status === option.value && styles.statusButtonActive,
+                  ]}
+                  onPress={() => setStatus(option.value)}
+                >
+                  <Text
+                    style={[
+                      styles.statusText,
+                      status === option.value && styles.statusTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Assignment */}
+        {isAdmin && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Assign To</Text>
+            <TouchableOpacity
+              style={[styles.input, styles.dropdown]}
+              onPress={() => setShowUserList((prev) => !prev)}
+              disabled={usersLoading}
+            >
+              <Text style={styles.dropdownText}>
+                {assignedTo
+                  ? (() => {
+                      const user = users.find((u) => u.id === assignedTo);
+                      const email = user?.email ?? '';
+                      const emailName = email.includes('@') ? email.split('@')[0] : '';
+                      return user?.full_name || emailName || assignedTo;
+                    })()
+                  : 'Select a user'}
+              </Text>
+              <Text style={styles.dropdownCaret}>{showUserList ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {errors.assignedTo && (
+              <Text style={styles.errorText}>{errors.assignedTo}</Text>
+            )}
+            {showUserList && (
+              <View style={styles.dropdownList}>
+                {usersLoading ? (
+                  <Text style={styles.helperText}>Loading users...</Text>
+                ) : users.length === 0 ? (
+                  <Text style={styles.helperText}>No users found.</Text>
+                ) : (
+                  users.map((user) => (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setAssignedTo(user.id);
+                        setShowUserList(false);
+                        if (errors.assignedTo) setErrors({ ...errors, assignedTo: undefined });
+                      }}
+                    >
+                      <Text style={styles.dropdownItemText}>
+                        {(user.full_name || (user.email ? user.email.split('@')[0] : null) || user.id.substring(0, 8) + '...')}
+                        {' · '}
+                        {user.role}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            )}
+            <Text style={styles.helperText}>Admins can assign tasks to any user.</Text>
+          </View>
+        )}
+
+        {/* Department */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Department</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Sales"
+            placeholderTextColor="#9CA3AF"
+            value={department}
+            onChangeText={setDepartment}
+            maxLength={50}
+          />
+          <Text style={styles.helperText}>
+            If you haven’t applied the schema change yet, this field will be ignored.
+          </Text>
+        </View>
+
         {/* Quick Duration Buttons */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Quick Due Date</Text>
@@ -218,7 +388,9 @@ export const CreateTaskScreen = () => {
 
         {/* Custom Due Date Input */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Or Set Custom Date</Text>
+          <Text style={styles.label}>
+            Due Date <Text style={styles.required}>*</Text>
+          </Text>
           <TextInput
             style={[styles.input, errors.dueAt && styles.inputError]}
             placeholder="2026-02-05T18:00:00.000Z"
@@ -334,6 +506,62 @@ const styles = StyleSheet.create({
   priorityContainer: {
     flexDirection: 'row',
     gap: 12,
+  },
+  dropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownText: {
+    fontSize: 16,
+    color: '#111827',
+  },
+  dropdownCaret: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  dropdownList: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: '#374151',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statusButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+  },
+  statusButtonActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  statusTextActive: {
+    color: '#FFFFFF',
   },
   priorityButton: {
     flex: 1,
