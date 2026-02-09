@@ -15,12 +15,12 @@ const formatRemaining = (dueAt: string | null) => {
   const diffMs = due - now;
   const diffSec = Math.floor(diffMs / 1000);
   const isOverdue = diffSec < 0;
-  const isUrgent = diffSec > 0 && diffSec < 3600; // Less than 1 hour
+  const isUrgent = diffSec > 0 && diffSec < 3600;
 
   if (isOverdue) {
     return { text: '00:00:00', isOverdue: true, isUrgent: false };
   }
-  
+
   const sign = diffSec >= 0 ? '' : '-';
   const absSec = Math.abs(diffSec);
   const hours = Math.floor(absSec / 3600);
@@ -95,11 +95,7 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
   const priorityColor = getPriorityColor(task.priority);
 
   return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-    >
+    <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }] }]}>
         <View style={[styles.priorityBar, { backgroundColor: priorityColor }]} />
 
@@ -156,11 +152,11 @@ export const TaskCard: React.FC<Props> = ({ task, onPress, showAssignee }) => {
             <View style={styles.assigneeRow}>
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarText}>
-                  {task.assigned_to.substring(0, 2).toUpperCase()}
+                  {task.assigned_to.slice(0, 2).toUpperCase()}
                 </Text>
               </View>
               <Text style={styles.assigneeText}>
-                Assigned to: {task.assigned_to.substring(0, 8)}...
+                Assigned to: {task.assigned_to.slice(0, 8)}...
               </Text>
             </View>
           )}

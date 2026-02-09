@@ -133,7 +133,6 @@ export const TaskDetailScreen = () => {
   const [users, setUsers] = useState<Profile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [showUserList, setShowUserList] = useState(false);
-
   const canEditAll = isManager;
   const isRunning = task?.started_at !== null;
   const canManageContacts =

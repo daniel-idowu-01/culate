@@ -8,6 +8,7 @@ export type Profile = {
   staff_id: string | null;
   department: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 export type TaskStatus = 'open' | 'pending' | 'closed';
@@ -77,4 +78,3 @@ export type TaskContact = {
   created_by: string;
   created_at: string;
 };
-

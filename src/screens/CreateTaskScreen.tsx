@@ -118,7 +118,7 @@ export const CreateTaskScreen = () => {
     setSaving(true);
     const userId = session.user.id;
     const assignee = isAdmin ? (assignedTo.trim() || userId) : userId;
-    
+
     const closedPayload =
       status === 'closed' && isAdmin
         ? { closed_approved_by: userId, closed_at: new Date().toISOString() }
