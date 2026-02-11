@@ -27,6 +27,7 @@ import type {
 import { useAuth } from '../context/AuthContext';
 import { useLeads } from '../hooks/useLeads';
 import * as DocumentPicker from 'expo-document-picker';
+import { updateTaskNotifications } from '../api/pushNotifications';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -388,6 +389,10 @@ export const TaskDetailScreen = () => {
 
     const updated = data as Task;
     setTask(updated);
+
+    // Keep deadline notifications in sync with latest details
+    await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
+
     Alert.alert('Success', 'Task updated successfully');
   };
 
@@ -409,6 +414,9 @@ export const TaskDetailScreen = () => {
     const updated = data as Task;
     setTask(updated);
     setStatus(updated.status);
+
+    // Refresh notifications when task is opened
+    await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
   };
 
   const handlePending = async () => {
@@ -440,6 +448,9 @@ export const TaskDetailScreen = () => {
     
     const updated = data as Task;
     setTask(updated);
+
+    // Refresh notifications when task is paused
+    await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
   };
 
   const handleClose = async () => {
@@ -504,6 +515,9 @@ export const TaskDetailScreen = () => {
     const updated = data as Task;
     setTask(updated);
     setStatus(updated.status);
+
+    // Cancel any remaining deadline notifications when task is closed
+    await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
     
     Alert.alert('Closed', 'Task closed with supervisor approval.');
   };

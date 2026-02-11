@@ -5,6 +5,7 @@ import { supabase } from './supabaseClient';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
+    // Ensure local notifications show visibly while app is foregrounded
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
@@ -102,8 +103,12 @@ export async function scheduleTaskDeadlineNotification(
 
     await cancelTaskNotifications(taskId);
 
-    const oneHourBefore = new Date(dueDate.getTime() - 60 * 60 * 1000);
-    if (oneHourBefore > now) {
+    const nowMs = now.getTime();
+
+    // 1 hour before deadline
+    const oneHourBeforeMs = dueDate.getTime() - 60 * 60 * 1000;
+    const oneHourDiffSec = Math.floor((oneHourBeforeMs - nowMs) / 1000);
+    if (oneHourDiffSec > 0) {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Task deadline approaching',
@@ -113,15 +118,17 @@ export async function scheduleTaskDeadlineNotification(
           priority: Notifications.AndroidNotificationPriority.HIGH,
         },
         trigger: {
-          date: oneHourBefore,
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: oneHourDiffSec,
           channelId: 'task-reminders',
         },
-        identifier: `task-${taskId}-1hour`,
       });
     }
 
-    const fifteenMinBefore = new Date(dueDate.getTime() - 15 * 60 * 1000);
-    if (fifteenMinBefore > now) {
+    // 15 minutes before deadline
+    const fifteenBeforeMs = dueDate.getTime() - 15 * 60 * 1000;
+    const fifteenDiffSec = Math.floor((fifteenBeforeMs - nowMs) / 1000);
+    if (fifteenDiffSec > 0) {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Task deadline soon',
@@ -131,27 +138,31 @@ export async function scheduleTaskDeadlineNotification(
           priority: Notifications.AndroidNotificationPriority.MAX,
         },
         trigger: {
-          date: fifteenMinBefore,
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: fifteenDiffSec,
           channelId: 'task-reminders',
         },
-        identifier: `task-${taskId}-15min`,
       });
     }
 
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Task overdue',
-        body: `"${taskTitle}" deadline has passed`,
-        data: { taskId, type: 'overdue' },
-        sound: true,
-        priority: Notifications.AndroidNotificationPriority.MAX,
-      },
-      trigger: {
-        date: dueDate,
-        channelId: 'task-reminders',
-      },
-      identifier: `task-${taskId}-deadline`,
-    });
+    // At deadline
+    const deadlineDiffSec = Math.floor((dueDate.getTime() - nowMs) / 1000);
+    if (deadlineDiffSec > 0) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Task overdue',
+          body: `"${taskTitle}" deadline has passed`,
+          data: { taskId, type: 'overdue' },
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.MAX,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: deadlineDiffSec,
+          channelId: 'task-reminders',
+        },
+      });
+    }
 
     console.log('Scheduled notifications for task:', taskTitle);
   } catch (error) {
@@ -164,7 +175,12 @@ export async function cancelTaskNotifications(taskId: string) {
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
 
     const taskNotificationIds = scheduledNotifications
-      .filter((notification) => notification.identifier.startsWith(`task-${taskId}`))
+      .filter(
+        (notification) =>
+          notification.content?.data &&
+          // We always include taskId in the notification data payload
+          (notification.content.data as any).taskId === taskId
+      )
       .map((notification) => notification.identifier);
 
     for (const id of taskNotificationIds) {
