@@ -28,6 +28,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLeads } from '../hooks/useLeads';
 import * as DocumentPicker from 'expo-document-picker';
 import { updateTaskNotifications } from '../api/pushNotifications';
+import { Ionicons } from '@expo/vector-icons';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -368,9 +369,9 @@ export const TaskDetailScreen = () => {
       updates.title = title;
       updates.description = description;
       updates.priority = priority;
-      updates.due_at = dueAt;
-      updates.assigned_to = assignedTo;
-      updates.department = department;
+      updates.due_at = dueAt || undefined;
+      updates.assigned_to = assignedTo || undefined;
+      updates.department = department || undefined;
     }
 
     const { error, data } = await supabase
@@ -608,7 +609,9 @@ export const TaskDetailScreen = () => {
             onPress={handlePending}
             disabled={!isRunning && status === 'pending'}
           >
-            <Text style={styles.controlButtonIcon}>⏸</Text>
+            <Text style={styles.controlButtonIcon}>
+              <Ionicons name="pause-outline" size={16} color="#FFFFFF" />
+            </Text>
             <Text style={styles.controlButtonText}>Pending</Text>
           </TouchableOpacity>
           
@@ -966,7 +969,9 @@ export const TaskDetailScreen = () => {
           </View>
           {taskLeads.length === 0 ? (
             <View style={styles.outcomeEmpty}>
-              <Text style={styles.outcomeEmptyIcon}>👤</Text>
+              <Text style={styles.outcomeEmptyIcon}>
+                <Ionicons name="person-outline" size={64} color="#9CA3AF" />
+              </Text>
               <Text style={styles.outcomeEmptyText}>No potential customers recorded yet</Text>
               <Text style={styles.outcomeEmptyHint}>Tap the button above to add contacts from this task</Text>
             </View>

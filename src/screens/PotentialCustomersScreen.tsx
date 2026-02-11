@@ -13,6 +13,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useLeads } from '../hooks/useLeads';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import type { Lead } from '../types';
+import { Ionicons } from '@expo/vector-icons';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -67,14 +68,16 @@ export const PotentialCustomersScreen = () => {
           }
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>👤</Text>
+              <Text style={styles.emptyIcon}>
+                <Ionicons name="person-outline" size={64} color="#9CA3AF" />
+              </Text>
               <Text style={styles.emptyTitle}>No potential customers yet</Text>
               <Text style={styles.emptyText}>
                 Add contacts you meet while out in the field
               </Text>
               <TouchableOpacity
                 style={styles.emptyButton}
-                onPress={() => navigation.navigate('AddLead')}
+                onPress={() => navigation.navigate('AddLead', { taskId: undefined })}
               >
                 <Text style={styles.emptyButtonText}>Add First Contact</Text>
               </TouchableOpacity>
@@ -85,10 +88,12 @@ export const PotentialCustomersScreen = () => {
 
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => navigation.navigate('AddLead')}
+        onPress={() => navigation.navigate('AddLead', { taskId: undefined })}
         activeOpacity={0.8}
       >
-        <Text style={styles.fabIcon}>+</Text>
+        <Text style={styles.fabIcon}>
+          <Ionicons name="add-outline" size={28} color="#FFFFFF" />
+        </Text>
       </TouchableOpacity>
     </View>
   );

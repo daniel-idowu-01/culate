@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import type { TaskStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -104,7 +105,9 @@ export const AdminTaskListScreen = () => {
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Text style={styles.searchIcon}>
+          <Ionicons name="search-outline" size={16} color="#9CA3AF" />
+        </Text>
         <TextInput
           style={styles.searchInput}
           placeholder="Search tasks..."
@@ -169,7 +172,9 @@ export const AdminTaskListScreen = () => {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>📋</Text>
+              <Text style={styles.emptyIcon}>
+                <Ionicons name="clipboard-outline" size={64} color="#9CA3AF" />
+              </Text>
               <Text style={styles.emptyTitle}>
                 {searchQuery || selectedStatus !== 'all'
                   ? 'No matching tasks'
