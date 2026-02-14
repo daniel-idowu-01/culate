@@ -16,7 +16,7 @@ import { supabase } from '../api/supabaseClient';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import type { TaskPriority, TaskStatus, Profile } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { updateTaskNotifications } from '../api/pushNotifications';
+import { updateTaskNotifications, sendTaskAssignedNotification } from '../api/pushNotifications';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -176,6 +176,11 @@ export const CreateTaskScreen = () => {
     // Schedule push notifications around this task's deadline
     if (data?.id && data?.title && data?.status && data?.due_at) {
       await updateTaskNotifications(data.id, data.title, data.status, data.due_at);
+    }
+
+    // Notify assignee when task is assigned to them
+    if (data?.assigned_to && data.assigned_to !== userId) {
+      await sendTaskAssignedNotification(data.id, data.title, data.assigned_to);
     }
 
     Alert.alert(

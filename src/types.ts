@@ -29,6 +29,8 @@ export type Task = {
   time_spent_seconds: number;
   closed_approved_by: string | null;
   closed_at: string | null;
+  escalated_at?: string | null;
+  escalated_to?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -77,4 +79,14 @@ export type TaskContact = {
   notes: string | null;
   created_by: string;
   created_at: string;
+};
+
+export type TaskSubtask = {
+  id: string;
+  task_id: string;
+  title: string;
+  completed: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 };

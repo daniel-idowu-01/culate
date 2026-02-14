@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { LoginScreen } from '../screens/LoginScreen';
 import { AdminTaskListScreen } from '../screens/AdminTaskListScreen';
+import { ReportsScreen } from '../screens/ReportsScreen';
 import { AssociateTaskListScreen } from '../screens/AssociateTaskListScreen';
 import { PotentialCustomersScreen } from '../screens/PotentialCustomersScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
@@ -25,7 +26,16 @@ const Tab = createBottomTabNavigator();
 
 const AdminTabs = () => (
   <Tab.Navigator>
-    <Tab.Screen name="Tasks" component={AdminTaskListScreen} />
+    <Tab.Screen
+      name="Tasks"
+      component={AdminTaskListScreen}
+      options={{ tabBarLabel: 'Tasks' }}
+    />
+    <Tab.Screen
+      name="Reports"
+      component={ReportsScreen}
+      options={{ tabBarLabel: 'Reports' }}
+    />
   </Tab.Navigator>
 );
 

@@ -22,13 +22,14 @@ import type {
   TaskComment,
   TaskAttachment,
   TaskContact,
+  TaskSubtask,
   Profile,
 } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useLeads } from '../hooks/useLeads';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { updateTaskNotifications } from '../api/pushNotifications';
+import { updateTaskNotifications, sendTaskStatusNotification, sendTaskAssignedNotification } from '../api/pushNotifications';
 import { Ionicons } from '@expo/vector-icons';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
@@ -136,6 +137,10 @@ export const TaskDetailScreen = () => {
   const [users, setUsers] = useState<Profile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [showUserList, setShowUserList] = useState(false);
+  const [subtasks, setSubtasks] = useState<TaskSubtask[]>([]);
+  const [subtasksLoading, setSubtasksLoading] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [subtaskSaving, setSubtaskSaving] = useState(false);
   const canEditAll = isManager;
   const isRunning = task?.started_at !== null;
   const canManageContacts =
@@ -237,11 +242,27 @@ export const TaskDetailScreen = () => {
     setContactsLoading(false);
   };
 
+  const fetchSubtasks = async (taskId: string) => {
+    setSubtasksLoading(true);
+    const { data, error } = await supabase
+      .from('task_subtasks')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('sort_order', { ascending: true });
+    if (error) {
+      console.warn('Error loading subtasks', error.message);
+    } else {
+      setSubtasks((data ?? []) as TaskSubtask[]);
+    }
+    setSubtasksLoading(false);
+  };
+
   useEffect(() => {
     if (!task?.id) return;
     fetchComments(task.id);
     fetchAttachments(task.id);
     fetchContacts(task.id);
+    fetchSubtasks(task.id);
   }, [task?.id]);
 
   useEffect(() => {
@@ -378,6 +399,53 @@ export const TaskDetailScreen = () => {
     setContactNotes('');
   };
 
+  const handleAddSubtask = async () => {
+    if (!task || !newSubtaskTitle.trim()) return;
+    setSubtaskSaving(true);
+    const { data, error } = await supabase
+      .from('task_subtasks')
+      .insert({
+        task_id: task.id,
+        title: newSubtaskTitle.trim(),
+        completed: false,
+        sort_order: subtasks.length,
+      })
+      .select()
+      .single();
+    setSubtaskSaving(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    setSubtasks((prev) => [...prev, data as TaskSubtask]);
+    setNewSubtaskTitle('');
+  };
+
+  const handleToggleSubtask = async (subtask: TaskSubtask) => {
+    const { data, error } = await supabase
+      .from('task_subtasks')
+      .update({ completed: !subtask.completed })
+      .eq('id', subtask.id)
+      .select()
+      .single();
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    setSubtasks((prev) =>
+      prev.map((s) => (s.id === subtask.id ? (data as TaskSubtask) : s))
+    );
+  };
+
+  const handleDeleteSubtask = async (subtaskId: string) => {
+    const { error } = await supabase.from('task_subtasks').delete().eq('id', subtaskId);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    setSubtasks((prev) => prev.filter((s) => s.id !== subtaskId));
+  };
+
   const handleSave = async () => {
     if (!task) return;
     setSaving(true);
@@ -391,6 +459,9 @@ export const TaskDetailScreen = () => {
       updates.assigned_to = assignedTo || undefined;
       updates.department = department || undefined;
     }
+
+    const previousAssignedTo = task.assigned_to;
+    const reassigning = canEditAll && assignedTo && assignedTo !== previousAssignedTo;
 
     const { error, data } = await supabase
       .from('tasks')
@@ -411,6 +482,11 @@ export const TaskDetailScreen = () => {
 
     // Keep deadline notifications in sync with latest details
     await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
+
+    // Notify new assignee when task is reassigned
+    if (reassigning && updated.assigned_to) {
+      await sendTaskAssignedNotification(updated.id, updated.title, updated.assigned_to);
+    }
 
     Alert.alert('Success', 'Task updated successfully');
   };
@@ -436,6 +512,7 @@ export const TaskDetailScreen = () => {
 
     // Refresh notifications when task is opened
     await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
+    sendTaskStatusNotification(updated.title, 'open');
   };
 
   const handlePending = async () => {
@@ -470,6 +547,7 @@ export const TaskDetailScreen = () => {
 
     // Refresh notifications when task is paused
     await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
+    sendTaskStatusNotification(updated.title, 'pending');
   };
 
   const handleClose = async () => {
@@ -537,7 +615,8 @@ export const TaskDetailScreen = () => {
 
     // Cancel any remaining deadline notifications when task is closed
     await updateTaskNotifications(updated.id, updated.title, updated.status, updated.due_at);
-    
+    sendTaskStatusNotification(updated.title, 'closed');
+
     Alert.alert('Closed', 'Task closed with supervisor approval.');
   };
 
@@ -627,9 +706,7 @@ export const TaskDetailScreen = () => {
             onPress={handlePending}
             disabled={!isRunning && status === 'pending'}
           >
-            <Text style={styles.controlButtonIcon}>
-              <Ionicons name="pause-outline" size={16} color="#FFFFFF" />
-            </Text>
+            <Ionicons name="pause-outline" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
             <Text style={styles.controlButtonText}>Pending</Text>
           </TouchableOpacity>
           
@@ -804,6 +881,15 @@ export const TaskDetailScreen = () => {
           </View>
         )}
 
+        {task.escalated_at && (
+          <View style={[styles.inputGroup, styles.escalationBanner]}>
+            <Text style={styles.escalationLabel}>Escalated (overdue)</Text>
+            <Text style={styles.helperText}>
+              Escalated on {new Date(task.escalated_at).toLocaleString()}
+            </Text>
+          </View>
+        )}
+
         {/* Save Button */}
         <TouchableOpacity
           style={[styles.saveButton, saving && styles.saveButtonDisabled]}
@@ -814,6 +900,60 @@ export const TaskDetailScreen = () => {
             {saving ? 'Saving...' : 'Save Changes'}
           </Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Sub-tasks */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Sub-tasks</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Add a sub-task..."
+          placeholderTextColor="#9CA3AF"
+          value={newSubtaskTitle}
+          onChangeText={setNewSubtaskTitle}
+        />
+        <TouchableOpacity
+          style={[styles.saveButton, (subtaskSaving || !newSubtaskTitle.trim()) && styles.saveButtonDisabled]}
+          onPress={handleAddSubtask}
+          disabled={subtaskSaving || !newSubtaskTitle.trim()}
+        >
+          <Text style={styles.saveButtonText}>
+            {subtaskSaving ? 'Adding...' : 'Add Sub-task'}
+          </Text>
+        </TouchableOpacity>
+        {subtasksLoading ? (
+          <Text style={styles.helperText}>Loading sub-tasks...</Text>
+        ) : subtasks.length === 0 ? (
+          <Text style={styles.helperText}>No sub-tasks yet.</Text>
+        ) : (
+          subtasks.map((subtask) => (
+            <View key={subtask.id} style={styles.subtaskItem}>
+              <TouchableOpacity
+                style={styles.subtaskCheckbox}
+                onPress={() => handleToggleSubtask(subtask)}
+              >
+                <Text style={styles.subtaskCheckboxText}>
+                  {subtask.completed ? '✓' : '○'}
+                </Text>
+              </TouchableOpacity>
+              <Text
+                style={[
+                  styles.subtaskTitle,
+                  subtask.completed && styles.subtaskTitleCompleted,
+                ]}
+                numberOfLines={2}
+              >
+                {subtask.title}
+              </Text>
+              <TouchableOpacity
+                style={styles.subtaskDelete}
+                onPress={() => handleDeleteSubtask(subtask.id)}
+              >
+                <Text style={styles.subtaskDeleteText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
       </View>
 
       {/* Comments */}
@@ -1295,6 +1435,46 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     marginTop: 12,
   },
+  subtaskItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 12,
+    marginTop: 12,
+    gap: 12,
+  },
+  subtaskCheckbox: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subtaskCheckboxText: {
+    fontSize: 14,
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  subtaskTitle: {
+    flex: 1,
+    fontSize: 15,
+    color: '#374151',
+  },
+  subtaskTitleCompleted: {
+    textDecorationLine: 'line-through',
+    color: '#9CA3AF',
+  },
+  subtaskDelete: {
+    padding: 4,
+  },
+  subtaskDeleteText: {
+    fontSize: 16,
+    color: '#EF4444',
+    fontWeight: '600',
+  },
   attachmentName: {
     fontSize: 14,
     fontWeight: '600',
@@ -1397,5 +1577,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     marginTop: 8,
+  },
+  escalationBanner: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    padding: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+  },
+  escalationLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400E',
+    marginBottom: 4,
   },
 });

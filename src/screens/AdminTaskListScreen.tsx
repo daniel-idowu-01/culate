@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useTasks } from '../hooks/useTasks';
 import { TaskCard } from '../components/TaskCard';
+import { escalateOverdueTask } from '../api/escalation';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -32,7 +33,27 @@ export const AdminTaskListScreen = () => {
   const { tasks, refetch, isLoading, isRefetching } = useTasks({ scope: 'all' });
   const navigation = useNavigation<Nav>();
   const { signOut } = useAuth();
-  
+
+  // Escalate overdue tasks when they exceed SLA (Section 8)
+  useEffect(() => {
+    if (!tasks.length || isLoading) return;
+    const run = async () => {
+      let anyEscalated = false;
+      for (const task of tasks) {
+        if (
+          task.status !== 'closed' &&
+          new Date(task.due_at).getTime() < Date.now() &&
+          !task.escalated_at
+        ) {
+          const ok = await escalateOverdueTask(task);
+          if (ok) anyEscalated = true;
+        }
+      }
+      if (anyEscalated) refetch();
+    };
+    run();
+  }, [tasks, isLoading, refetch]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
 

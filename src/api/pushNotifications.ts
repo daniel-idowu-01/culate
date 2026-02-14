@@ -239,6 +239,65 @@ export async function sendTaskStatusNotification(taskTitle: string, status: stri
   });
 }
 
+/**
+ * Notify a user that a task was assigned to them.
+ * Invokes Supabase Edge Function to send push to assignee's device(s).
+ */
+export async function sendTaskAssignedNotification(
+  taskId: string,
+  taskTitle: string,
+  assigneeId: string
+): Promise<void> {
+  try {
+    await supabase.functions.invoke('send-push', {
+      body: {
+        userId: assigneeId,
+        title: 'Task assigned',
+        body: `"${taskTitle}" has been assigned to you`,
+        data: { taskId, type: 'task_assigned' },
+      },
+    });
+  } catch (err) {
+    console.warn('Could not send task-assigned push (edge function may not be deployed):', err);
+  }
+}
+
+/**
+ * Notify supervisor/HOS that a task has been escalated (overdue).
+ */
+export async function sendEscalationNotification(
+  taskId: string,
+  taskTitle: string,
+  assigneeId: string
+): Promise<void> {
+  try {
+    await supabase.functions.invoke('send-push', {
+      body: {
+        userId: assigneeId,
+        title: 'Overdue task escalated',
+        body: `"${taskTitle}" has exceeded SLA and has been escalated`,
+        data: { taskId, type: 'escalation' },
+      },
+    });
+  } catch (err) {
+    console.warn('Could not send escalation push:', err);
+  }
+}
+
+/**
+ * Local notification for task assignment (shows on current device when assignee is self).
+ */
+export async function sendTaskAssignedLocalNotification(taskTitle: string) {
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Task assigned',
+      body: `"${taskTitle}" has been assigned to you`,
+      sound: true,
+    },
+    trigger: null,
+  });
+}
+
 export function addNotificationListener(
   callback: (notification: Notifications.Notification) => void
 ) {

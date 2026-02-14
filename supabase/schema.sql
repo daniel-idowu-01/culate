@@ -53,6 +53,8 @@ create table if not exists public.tasks (
   time_spent_seconds integer not null default 0,
   closed_approved_by uuid references public.profiles(id) on delete set null,
   closed_at timestamptz,
+  escalated_at timestamptz,
+  escalated_to uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -88,6 +90,17 @@ create table if not exists public.task_contacts (
   created_by uuid not null references public.profiles(id) on delete cascade,
   created_at timestamptz not null default now(),
   constraint task_contacts_has_contact check (phone is not null or email is not null)
+);
+
+-- Task sub-tasks (Section 3: Sub-tasks supported)
+create table if not exists public.task_subtasks (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  title text not null,
+  completed boolean not null default false,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 -- Potential customers (leads) table - linked to tasks
@@ -136,6 +149,7 @@ alter table public.devices enable row level security;
 alter table public.task_comments enable row level security;
 alter table public.task_attachments enable row level security;
 alter table public.task_contacts enable row level security;
+alter table public.task_subtasks enable row level security;
 alter table public.departments enable row level security;
 
 -- Helper function to check if current user is manager (admin/supervisor/department head)
@@ -296,6 +310,31 @@ create policy "Attachments: assigned users can insert"
         and (tasks.assigned_to = auth.uid() or tasks.created_by = auth.uid())
     )
   );
+
+-- Sub-tasks policies
+drop policy if exists "Subtasks: managers full access" on public.task_subtasks;
+create policy "Subtasks: managers full access"
+  on public.task_subtasks for all
+  using (public.is_manager()) with check (public.is_manager());
+drop policy if exists "Subtasks: assigned users can read" on public.task_subtasks;
+create policy "Subtasks: assigned users can read"
+  on public.task_subtasks for select
+  using (exists (select 1 from public.tasks where tasks.id = task_subtasks.task_id and (tasks.assigned_to = auth.uid() or tasks.created_by = auth.uid())));
+drop policy if exists "Subtasks: assigned users can insert" on public.task_subtasks;
+create policy "Subtasks: assigned users can insert"
+  on public.task_subtasks for insert
+  with check (exists (select 1 from public.tasks where tasks.id = task_subtasks.task_id and (tasks.assigned_to = auth.uid() or tasks.created_by = auth.uid())));
+drop policy if exists "Subtasks: assigned users can update" on public.task_subtasks;
+create policy "Subtasks: assigned users can update"
+  on public.task_subtasks for update
+  using (exists (select 1 from public.tasks where tasks.id = task_subtasks.task_id and (tasks.assigned_to = auth.uid() or tasks.created_by = auth.uid())));
+drop policy if exists "Subtasks: assigned users can delete" on public.task_subtasks;
+create policy "Subtasks: assigned users can delete"
+  on public.task_subtasks for delete
+  using (exists (select 1 from public.tasks where tasks.id = task_subtasks.task_id and (tasks.assigned_to = auth.uid() or tasks.created_by = auth.uid())));
+drop trigger if exists set_task_subtasks_updated_at on public.task_subtasks;
+create trigger set_task_subtasks_updated_at before update on public.task_subtasks
+  for each row execute procedure public.set_updated_at();
 
 -- Leads policies: users manage own leads; managers can view all
 drop policy if exists "Leads: users full access to own" on public.leads;
