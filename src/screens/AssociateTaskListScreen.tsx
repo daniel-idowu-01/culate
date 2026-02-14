@@ -1,16 +1,22 @@
 import React from 'react';
-import { View, Text, FlatList, Button, StyleSheet } from 'react-native';
+import { View, Text, FlatList, Button, StyleSheet, TouchableOpacity } from 'react-native';
 import { useTasks } from '../hooks/useTasks';
 import { TaskCard } from '../components/TaskCard';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import { useAuth } from '../context/AuthContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export const AssociateTaskListScreen = () => {
   const { tasks, refetch, isLoading } = useTasks({ scope: 'mine' });
   const navigation = useNavigation<Nav>();
+  const { signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+  };
 
   return (
     <View style={styles.container}>
@@ -19,6 +25,9 @@ export const AssociateTaskListScreen = () => {
         <View style={styles.headerButtons}>
           <Button title="New" onPress={() => navigation.navigate('CreateTask')} />
           <Button title="Refresh" onPress={() => refetch()} disabled={isLoading} />
+          <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
         </View>
       </View>
       <FlatList
@@ -53,11 +62,24 @@ const styles = StyleSheet.create({
   },
   headerButtons: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   title: {
     fontSize: 22,
     fontWeight: '600',
+  },
+  signOutButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  signOutText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
   },
   empty: {
     marginTop: 32,

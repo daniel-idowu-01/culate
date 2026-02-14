@@ -27,6 +27,7 @@ import type {
 import { useAuth } from '../context/AuthContext';
 import { useLeads } from '../hooks/useLeads';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { updateTaskNotifications } from '../api/pushNotifications';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -292,11 +293,28 @@ export const TaskDetailScreen = () => {
     const path = `${task.id}/${Date.now()}-${fileName}`;
 
     try {
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
+      // Read file into a binary buffer to avoid fetch() issues with content:// URIs
+      const fileUri = file.uri;
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!fileInfo.exists) {
+        throw new Error('Selected file is not accessible on device');
+      }
+
+      const fileBase64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: 'base64',
+      });
+      
+      // Convert base64 to ArrayBuffer for Supabase upload
+      const binaryString = atob(fileBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const arrayBuffer = bytes.buffer;
+
       const { error: uploadError } = await supabase.storage
         .from('task-attachments')
-        .upload(path, blob, {
+        .upload(path, arrayBuffer, {
           contentType: file.mimeType ?? 'application/octet-stream',
           upsert: false,
         });

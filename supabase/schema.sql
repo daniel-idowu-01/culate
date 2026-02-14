@@ -139,13 +139,22 @@ alter table public.task_contacts enable row level security;
 alter table public.departments enable row level security;
 
 -- Helper function to check if current user is manager (admin/supervisor/department head)
+-- Marked as SECURITY DEFINER so it runs as table owner and avoids recursive RLS evaluation.
 create or replace function public.is_manager()
-returns boolean as $$
-  select exists (
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  return exists (
     select 1 from public.profiles
-    where id = auth.uid() and role in ('admin', 'supervisor', 'department_head')
+    where id = auth.uid()
+      and role in ('admin', 'supervisor', 'department_head')
   );
-$$ language sql stable;
+end;
+$$;
 
 -- Profiles policies
 drop policy if exists "Profiles: users can view own profile" on public.profiles;
