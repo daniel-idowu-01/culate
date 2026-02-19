@@ -24,7 +24,14 @@
         {
           "color": "#3B82F6"
         }
-      ]
-    ]
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2efa3600-cffa-4afd-bc2d-f4f7986af769"
+      }
+    },
+    "owner": "idowudaniel"
   }
 }

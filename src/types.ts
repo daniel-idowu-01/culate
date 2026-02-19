@@ -25,6 +25,7 @@ export type Task = {
   assigned_to: string;
   department: string | null;
   due_at: string;
+  custom_duration_seconds: number | null;
   started_at: string | null;
   time_spent_seconds: number;
   closed_approved_by: string | null;
@@ -33,6 +34,14 @@ export type Task = {
   escalated_to?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type TaskAssignee = {
+  id: string;
+  task_id: string;
+  user_id: string;
+  assigned_at: string;
+  assigned_by: string | null;
 };
 
 export type Lead = {

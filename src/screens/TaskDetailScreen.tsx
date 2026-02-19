@@ -23,6 +23,7 @@ import type {
   TaskAttachment,
   TaskContact,
   TaskSubtask,
+  TaskAssignee,
   Profile,
 } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -30,15 +31,53 @@ import { useLeads } from '../hooks/useLeads';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { updateTaskNotifications, sendTaskStatusNotification, sendTaskAssignedNotification } from '../api/pushNotifications';
+import { escalateOverdueTask } from '../api/escalation';
 import { Ionicons } from '@expo/vector-icons';
 
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-const formatRemaining = (dueAt: string | null, status: TaskStatus) => {
+const formatRemaining = (dueAt: string | null, status: TaskStatus, customDurationSeconds: number | null = null, startedAt: string | null = null) => {
   if (status === 'closed') {
     return { text: 'Closed', isOverdue: false, isUrgent: false, hours: 0, minutes: 0, seconds: 0 };
   }
+  
+  // If custom duration is set and task has started, use countdown from start time
+  if (customDurationSeconds && startedAt) {
+    const start = new Date(startedAt).getTime();
+    const now = Date.now();
+    const elapsed = Math.floor((now - start) / 1000);
+    const remaining = customDurationSeconds - elapsed;
+    const isOverdue = remaining < 0;
+    const isUrgent = remaining > 0 && remaining < 3600;
+    
+    if (isOverdue) {
+      return {
+        text: '00:00:00',
+        isOverdue: true,
+        isUrgent: false,
+        hours: 0,
+        minutes: 0,
+        seconds: 0,
+      };
+    }
+    
+    const absSec = Math.abs(remaining);
+    const hours = Math.floor(absSec / 3600);
+    const minutes = Math.floor((absSec % 3600) / 60);
+    const seconds = absSec % 60;
+    
+    return {
+      text: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
+      isOverdue: false,
+      isUrgent,
+      hours,
+      minutes,
+      seconds,
+    };
+  }
+  
+  // Default: use due_at deadline
   if (!dueAt) return { text: 'No deadline', isOverdue: false, isUrgent: false };
   const due = new Date(dueAt).getTime();
   const now = Date.now();
@@ -141,6 +180,11 @@ export const TaskDetailScreen = () => {
   const [subtasksLoading, setSubtasksLoading] = useState(false);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [subtaskSaving, setSubtaskSaving] = useState(false);
+  const [customDurationSeconds, setCustomDurationSeconds] = useState<number | null>(null);
+  const [customDurationInput, setCustomDurationInput] = useState('');
+  const [teamAssignees, setTeamAssignees] = useState<TaskAssignee[]>([]);
+  const [teamAssigneesLoading, setTeamAssigneesLoading] = useState(false);
+  const [showTeamAssignees, setShowTeamAssignees] = useState(false);
   const canEditAll = isManager;
   const isRunning = task?.started_at !== null;
   const canManageContacts =
@@ -176,12 +220,55 @@ export const TaskDetailScreen = () => {
         setDueAt(t.due_at);
         setAssignedTo(t.assigned_to);
         setDepartment(t.department ?? 'Sales');
-        setTimeInfo(formatRemaining(t.due_at, t.status));
+        setCustomDurationSeconds(t.custom_duration_seconds);
+        setCustomDurationInput(t.custom_duration_seconds ? Math.floor(t.custom_duration_seconds / 3600).toString() : '');
+        setTimeInfo(formatRemaining(t.due_at, t.status, t.custom_duration_seconds, t.started_at));
       }
       setLoading(false);
     };
 
     fetchTask();
+    
+    // Set up real-time subscription for this specific task
+    const channel = supabase
+      .channel(`task-${route.params.taskId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `id=eq.${route.params.taskId}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedTask = payload.new as Task;
+            setTask(updatedTask);
+            setTitle(updatedTask.title);
+            setDescription(updatedTask.description ?? '');
+            setStatus(updatedTask.status);
+            setPriority(updatedTask.priority);
+            setDueAt(updatedTask.due_at);
+            setAssignedTo(updatedTask.assigned_to);
+            setDepartment(updatedTask.department ?? 'Sales');
+            setCustomDurationSeconds(updatedTask.custom_duration_seconds);
+            setTimeInfo(formatRemaining(updatedTask.due_at, updatedTask.status, updatedTask.custom_duration_seconds, updatedTask.started_at));
+            
+            // Check for automatic escalation when timer hits 00:00
+            if (updatedTask.status !== 'closed' && !updatedTask.escalated_at) {
+              const timeInfo = formatRemaining(updatedTask.due_at, updatedTask.status, updatedTask.custom_duration_seconds, updatedTask.started_at);
+              if (timeInfo.isOverdue && timeInfo.hours === 0 && timeInfo.minutes === 0 && timeInfo.seconds === 0) {
+                escalateOverdueTask(updatedTask);
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [route.params.taskId]);
 
   const fetchComments = async (taskId: string) => {
@@ -257,12 +344,59 @@ export const TaskDetailScreen = () => {
     setSubtasksLoading(false);
   };
 
+  const fetchTeamAssignees = async (taskId: string) => {
+    setTeamAssigneesLoading(true);
+    const { data, error } = await supabase
+      .from('task_assignees')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('assigned_at', { ascending: false });
+    if (error) {
+      console.warn('Error loading team assignees', error.message);
+    } else {
+      setTeamAssignees((data ?? []) as TaskAssignee[]);
+    }
+    setTeamAssigneesLoading(false);
+  };
+
+  const handleAddTeamAssignee = async (userId: string) => {
+    if (!task || !session) return;
+    const { error } = await supabase
+      .from('task_assignees')
+      .insert({
+        task_id: task.id,
+        user_id: userId,
+        assigned_by: session.user.id,
+      });
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    await fetchTeamAssignees(task.id);
+    Alert.alert('Success', 'Team member added to task');
+  };
+
+  const handleRemoveTeamAssignee = async (assigneeId: string) => {
+    if (!task) return;
+    const { error } = await supabase
+      .from('task_assignees')
+      .delete()
+      .eq('id', assigneeId);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    await fetchTeamAssignees(task.id);
+    Alert.alert('Success', 'Team member removed from task');
+  };
+
   useEffect(() => {
     if (!task?.id) return;
     fetchComments(task.id);
     fetchAttachments(task.id);
     fetchContacts(task.id);
     fetchSubtasks(task.id);
+    fetchTeamAssignees(task.id);
   }, [task?.id]);
 
   useEffect(() => {
@@ -271,10 +405,19 @@ export const TaskDetailScreen = () => {
 
   useEffect(() => {
     const id = setInterval(() => {
-      setTimeInfo(formatRemaining(dueAt, status));
+      if (task) {
+        const timeInfo = formatRemaining(dueAt, status, customDurationSeconds, task.started_at);
+        setTimeInfo(timeInfo);
+        
+        // Auto-escalate when timer hits 00:00:00
+        if (status !== 'closed' && !task.escalated_at && timeInfo.isOverdue && 
+            timeInfo.hours === 0 && timeInfo.minutes === 0 && timeInfo.seconds === 0) {
+          escalateOverdueTask(task);
+        }
+      }
     }, 1000);
     return () => clearInterval(id);
-  }, [dueAt, status]);
+  }, [dueAt, status, customDurationSeconds, task]);
 
   const handleAddComment = async () => {
     if (!task || !session || !commentText.trim()) return;
@@ -458,6 +601,7 @@ export const TaskDetailScreen = () => {
       updates.due_at = dueAt || undefined;
       updates.assigned_to = assignedTo || undefined;
       updates.department = department || undefined;
+      updates.custom_duration_seconds = customDurationSeconds || null;
     }
 
     const previousAssignedTo = task.assigned_to;
@@ -856,6 +1000,106 @@ export const TaskDetailScreen = () => {
             />
           </View>
         )}
+
+        {/* Custom Duration (Managers only) */}
+        {canEditAll && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Custom Timer Duration (hours)</Text>
+            <Text style={styles.helperText}>
+              Set a custom timer duration for tasks that need longer periods. Timer starts when task is opened.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g., 8 (for 8 hours)"
+              keyboardType="numeric"
+              value={customDurationInput}
+              onChangeText={(text) => {
+                setCustomDurationInput(text);
+                const hours = parseInt(text, 10);
+                if (!isNaN(hours) && hours > 0) {
+                  setCustomDurationSeconds(hours * 3600);
+                } else {
+                  setCustomDurationSeconds(null);
+                }
+              }}
+            />
+            {customDurationSeconds && (
+              <Text style={styles.helperText}>
+                Duration: {Math.floor(customDurationSeconds / 3600)}h {Math.floor((customDurationSeconds % 3600) / 60)}m
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* Team Collaboration Section */}
+        <View style={styles.inputGroup}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.label}>Team Collaboration</Text>
+            {isManager && (
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => setShowTeamAssignees(!showTeamAssignees)}
+              >
+                <Text style={styles.addButtonText}>+ Add Member</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {teamAssigneesLoading ? (
+            <ActivityIndicator size="small" color="#3B82F6" />
+          ) : teamAssignees.length > 0 ? (
+            <View style={styles.teamList}>
+              {teamAssignees.map((assignee) => {
+                const user = users.find(u => u.id === assignee.user_id);
+                return (
+                  <View key={assignee.id} style={styles.teamMember}>
+                    <View style={styles.teamMemberInfo}>
+                      <Text style={styles.teamMemberName}>
+                        {user?.full_name || user?.email?.split('@')[0] || 'Unknown User'}
+                      </Text>
+                      <Text style={styles.teamMemberRole}>{user?.role || 'staff'}</Text>
+                    </View>
+                    {isManager && (
+                      <TouchableOpacity
+                        style={styles.removeButton}
+                        onPress={() => handleRemoveTeamAssignee(assignee.id)}
+                      >
+                        <Text style={styles.removeButtonText}>Remove</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={styles.helperText}>No team members assigned yet.</Text>
+          )}
+          {isManager && showTeamAssignees && (
+            <View style={styles.userPicker}>
+              {usersLoading ? (
+                <ActivityIndicator size="small" color="#3B82F6" />
+              ) : (
+                users
+                  .filter(u => u.id !== task?.assigned_to && !teamAssignees.some(ta => ta.user_id === u.id))
+                  .map((user) => (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.userPickerItem}
+                      onPress={() => {
+                        handleAddTeamAssignee(user.id);
+                        setShowTeamAssignees(false);
+                      }}
+                    >
+                      <Text style={styles.userPickerText}>
+                        {user.full_name || user.email?.split('@')[0] || user.id.substring(0, 8)}
+                        {' · '}
+                        {user.role}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+              )}
+            </View>
+          )}
+        </View>
 
         {/* Due Date (Managers only) */}
         {canEditAll && (
@@ -1590,5 +1834,77 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#92400E',
     marginBottom: 4,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  addButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#3B82F6',
+  },
+  addButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  teamList: {
+    marginTop: 8,
+  },
+  teamMember: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  teamMemberInfo: {
+    flex: 1,
+  },
+  teamMemberName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  teamMemberRole: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  removeButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#FEE2E2',
+  },
+  removeButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  userPicker: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    maxHeight: 200,
+  },
+  userPickerItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  userPickerText: {
+    fontSize: 14,
+    color: '#374151',
   },
 });

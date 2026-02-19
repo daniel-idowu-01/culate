@@ -55,6 +55,8 @@ export const CreateTaskScreen = () => {
   const [showUserList, setShowUserList] = useState(false);
   const [department, setDepartment] = useState('Sales');
   const [dueAt, setDueAt] = useState('');
+  const [customDurationSeconds, setCustomDurationSeconds] = useState<number | null>(null);
+  const [customDurationInput, setCustomDurationInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<{
     title?: string;
@@ -133,6 +135,7 @@ export const CreateTaskScreen = () => {
       created_by: userId,
       assigned_to: assignee,
       due_at: new Date(dueAt).toISOString(),
+      custom_duration_seconds: customDurationSeconds || null,
       ...closedPayload,
     };
 
@@ -379,6 +382,34 @@ export const CreateTaskScreen = () => {
           <Text style={styles.helperText}>
             If you haven’t applied the schema change yet, this field will be ignored.
           </Text>
+        </View>
+
+        {/* Custom Timer Duration */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Custom Timer Duration (hours)</Text>
+          <Text style={styles.helperText}>
+            Optional: Set a custom timer duration for tasks that need longer periods. Timer starts when task is opened.
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g., 8 (for 8 hours)"
+            keyboardType="numeric"
+            value={customDurationInput}
+            onChangeText={(text) => {
+              setCustomDurationInput(text);
+              const hours = parseInt(text, 10);
+              if (!isNaN(hours) && hours > 0) {
+                setCustomDurationSeconds(hours * 3600);
+              } else {
+                setCustomDurationSeconds(null);
+              }
+            }}
+          />
+          {customDurationSeconds && (
+            <Text style={styles.helperText}>
+              Duration: {Math.floor(customDurationSeconds / 3600)}h {Math.floor((customDurationSeconds % 3600) / 60)}m
+            </Text>
+          )}
         </View>
 
         {/* Quick Duration Buttons */}
