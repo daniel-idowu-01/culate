@@ -34,6 +34,8 @@ import { updateTaskNotifications, sendTaskStatusNotification, sendTaskAssignedNo
 import { escalateOverdueTask } from '../api/escalation';
 import { Ionicons } from '@expo/vector-icons';
 
+const ESC_LOG = '[Escalation]';
+
 type TaskDetailRoute = RouteProp<RootStackParamList, 'TaskDetail'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -206,7 +208,8 @@ export const TaskDetailScreen = () => {
         .select('*')
         .eq('id', route.params.taskId)
         .single();
-
+        
+        console.log(data)
       if (error) {
         Alert.alert('Error', error.message);
         navigation.goBack();
@@ -241,6 +244,10 @@ export const TaskDetailScreen = () => {
           filter: `id=eq.${route.params.taskId}`,
         },
         (payload) => {
+          console.log(`${ESC_LOG} realtime event`, {
+            eventType: payload.eventType,
+            taskId: route.params.taskId,
+          });
           if (payload.eventType === 'UPDATE' && payload.new) {
             const updatedTask = payload.new as Task;
             setTask(updatedTask);
@@ -254,17 +261,44 @@ export const TaskDetailScreen = () => {
             setCustomDurationSeconds(updatedTask.custom_duration_seconds);
             setTimeInfo(formatRemaining(updatedTask.due_at, updatedTask.status, updatedTask.custom_duration_seconds, updatedTask.started_at));
             
+            console.log(`${ESC_LOG} realtime update payload`, {
+              taskId: updatedTask.id,
+              status: updatedTask.status,
+              dueAt: updatedTask.due_at,
+              escalatedAt: updatedTask.escalated_at ?? null,
+            });
             // Check for automatic escalation when timer hits 00:00
             if (updatedTask.status !== 'closed' && !updatedTask.escalated_at) {
               const timeInfo = formatRemaining(updatedTask.due_at, updatedTask.status, updatedTask.custom_duration_seconds, updatedTask.started_at);
+              console.log(`${ESC_LOG} realtime escalation guard`, {
+                taskId: updatedTask.id,
+                isOverdue: timeInfo.isOverdue,
+                h: timeInfo.hours,
+                m: timeInfo.minutes,
+                s: timeInfo.seconds,
+              });
               if (timeInfo.isOverdue && timeInfo.hours === 0 && timeInfo.minutes === 0 && timeInfo.seconds === 0) {
-                escalateOverdueTask(updatedTask);
+                console.log(`${ESC_LOG} realtime trigger escalateOverdueTask`, {
+                  taskId: updatedTask.id,
+                  title: updatedTask.title,
+                });
+                escalateOverdueTask(updatedTask).then((ok) =>
+                  console.log(`${ESC_LOG} realtime escalateOverdueTask result`, {
+                    taskId: updatedTask.id,
+                    ok,
+                  })
+                );
               }
             }
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`${ESC_LOG} task detail realtime channel status`, {
+          taskId: route.params.taskId,
+          status,
+        });
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -408,11 +442,30 @@ export const TaskDetailScreen = () => {
       if (task) {
         const timeInfo = formatRemaining(dueAt, status, customDurationSeconds, task.started_at);
         setTimeInfo(timeInfo);
+        console.log(`${ESC_LOG} interval tick`, {
+          taskId: task.id,
+          status,
+          dueAt,
+          escalatedAt: task.escalated_at ?? null,
+          isOverdue: timeInfo.isOverdue,
+          h: timeInfo.hours,
+          m: timeInfo.minutes,
+          s: timeInfo.seconds,
+        });
         
         // Auto-escalate when timer hits 00:00:00
         if (status !== 'closed' && !task.escalated_at && timeInfo.isOverdue && 
             timeInfo.hours === 0 && timeInfo.minutes === 0 && timeInfo.seconds === 0) {
-          escalateOverdueTask(task);
+          console.log(`${ESC_LOG} interval trigger escalateOverdueTask`, {
+            taskId: task.id,
+            title: task.title,
+          });
+          escalateOverdueTask(task).then((ok) =>
+            console.log(`${ESC_LOG} interval escalateOverdueTask result`, {
+              taskId: task.id,
+              ok,
+            })
+          );
         }
       }
     }, 1000);

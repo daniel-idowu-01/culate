@@ -30,8 +30,8 @@ export type Task = {
   time_spent_seconds: number;
   closed_approved_by: string | null;
   closed_at: string | null;
-  escalated_at?: string | null;
-  escalated_to?: string | null;
+  escalated_at: string | null;
+  escalated_to: string | null;
   created_at: string;
   updated_at: string;
 };

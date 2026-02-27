@@ -19,6 +19,8 @@ import type { TaskStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
+const ESC_LOG = '[Escalation]';
+
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const STATUS_FILTERS = [
@@ -38,18 +40,47 @@ export const AdminTaskListScreen = () => {
   useEffect(() => {
     if (!tasks.length || isLoading) return;
     const run = async () => {
+      console.log(`${ESC_LOG} admin list scan start`, {
+        taskCount: tasks.length,
+      });
       let anyEscalated = false;
       for (const task of tasks) {
-        if (
+        const overdueByDueAt =
+          task.status !== 'closed' && !!task.due_at && new Date(task.due_at).getTime() < Date.now();
+        const overdueByCustom =
           task.status !== 'closed' &&
-          new Date(task.due_at).getTime() < Date.now() &&
+          !!task.custom_duration_seconds &&
+          !!task.started_at &&
+          (() => {
+            const startMs = new Date(task.started_at).getTime();
+            if (Number.isNaN(startMs)) return false;
+            const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
+            return elapsedSec > task.custom_duration_seconds!;
+          })();
+        const overdue = overdueByCustom || overdueByDueAt;
+        console.log(`${ESC_LOG} admin list task check`, {
+          taskId: task.id,
+          status: task.status,
+          dueAt: task.due_at,
+          customDurationSeconds: task.custom_duration_seconds ?? null,
+          startedAt: task.started_at ?? null,
+          overdue,
+          escalatedAt: task.escalated_at ?? null,
+        });
+        if (
+          overdue &&
           !task.escalated_at
         ) {
+          console.log(`${ESC_LOG} admin list trigger escalateOverdueTask`, { taskId: task.id });
           const ok = await escalateOverdueTask(task);
+          console.log(`${ESC_LOG} admin list escalateOverdueTask result`, { taskId: task.id, ok });
           if (ok) anyEscalated = true;
         }
       }
-      if (anyEscalated) refetch();
+      if (anyEscalated) {
+        console.log(`${ESC_LOG} admin list refetch after escalation`);
+        refetch();
+      }
     };
     run();
   }, [tasks, isLoading, refetch]);
