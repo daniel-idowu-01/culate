@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../api/supabaseClient';
@@ -54,9 +55,11 @@ export const CreateTaskScreen = () => {
   const [usersLoading, setUsersLoading] = useState(false);
   const [showUserList, setShowUserList] = useState(false);
   const [department, setDepartment] = useState('Sales');
-  const [dueAt, setDueAt] = useState('');
+  const [dueAtDate, setDueAtDate] = useState<Date | null>(null);
+  const [showDuePicker, setShowDuePicker] = useState(false);
   const [customDurationSeconds, setCustomDurationSeconds] = useState<number | null>(null);
-  const [customDurationInput, setCustomDurationInput] = useState('');
+  const [durationHours, setDurationHours] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<{
     title?: string;
@@ -71,10 +74,8 @@ export const CreateTaskScreen = () => {
       newErrors.title = 'Title is required';
     }
 
-    if (!dueAt.trim()) {
+    if (!dueAtDate) {
       newErrors.dueAt = 'Due date is required';
-    } else if (isNaN(new Date(dueAt).getTime())) {
-      newErrors.dueAt = 'Invalid date format (use ISO)';
     }
 
     if (!isAdmin && assignedTo.trim() && assignedTo.trim() !== session?.user.id) {
@@ -88,8 +89,19 @@ export const CreateTaskScreen = () => {
   const setQuickDuration = (minutes: number) => {
     const dueDate = new Date();
     dueDate.setMinutes(dueDate.getMinutes() + minutes);
-    setDueAt(dueDate.toISOString());
+    setDueAtDate(dueDate);
     setErrors({ ...errors, dueAt: undefined });
+  };
+
+  const setDuration = (hours: number, minutes: number) => {
+    const totalMinutes = hours * 60 + minutes;
+    if (totalMinutes <= 0) {
+      setCustomDurationSeconds(null);
+      return;
+    }
+    setCustomDurationSeconds(totalMinutes * 60);
+    setDurationHours(hours ? String(hours) : '');
+    setDurationMinutes(minutes ? String(minutes) : '');
   };
 
   useEffect(() => {
@@ -134,7 +146,7 @@ export const CreateTaskScreen = () => {
       status,
       created_by: userId,
       assigned_to: assignee,
-      due_at: new Date(dueAt).toISOString(),
+      due_at: (dueAtDate ?? new Date()).toISOString(),
       custom_duration_seconds: customDurationSeconds || null,
       ...closedPayload,
     };
@@ -386,30 +398,75 @@ export const CreateTaskScreen = () => {
 
         {/* Custom Timer Duration */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Custom Timer Duration (hours)</Text>
+          <Text style={styles.label}>Custom Timer Duration (optional)</Text>
           <Text style={styles.helperText}>
             Optional: Set a custom timer duration for tasks that need longer periods. Timer starts when task is opened.
           </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g., 8 (for 8 hours)"
-            keyboardType="numeric"
-            value={customDurationInput}
-            onChangeText={(text) => {
-              setCustomDurationInput(text);
-              const hours = parseInt(text, 10);
-              if (!isNaN(hours) && hours > 0) {
-                setCustomDurationSeconds(hours * 3600);
-              } else {
-                setCustomDurationSeconds(null);
-              }
-            }}
-          />
+          <View style={styles.durationRow}>
+            <View style={styles.durationField}>
+              <Text style={styles.durationLabel}>Hours</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                keyboardType="numeric"
+                value={durationHours}
+                onChangeText={(text) => {
+                  const h = parseInt(text || '0', 10);
+                  const m = parseInt(durationMinutes || '0', 10);
+                  setDurationHours(text);
+                  setDuration(isNaN(h) ? 0 : h, isNaN(m) ? 0 : m);
+                }}
+              />
+            </View>
+            <View style={styles.durationField}>
+              <Text style={styles.durationLabel}>Minutes</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                keyboardType="numeric"
+                value={durationMinutes}
+                onChangeText={(text) => {
+                  const h = parseInt(durationHours || '0', 10);
+                  const m = parseInt(text || '0', 10);
+                  setDurationMinutes(text);
+                  setDuration(isNaN(h) ? 0 : h, isNaN(m) ? 0 : m);
+                }}
+              />
+            </View>
+          </View>
           {customDurationSeconds && (
             <Text style={styles.helperText}>
               Duration: {Math.floor(customDurationSeconds / 3600)}h {Math.floor((customDurationSeconds % 3600) / 60)}m
             </Text>
           )}
+          <View style={styles.quickDurationContainer}>
+            {[
+              { label: '30 min', h: 0, m: 30 },
+              { label: '1h', h: 1, m: 0 },
+              { label: '2h', h: 2, m: 0 },
+              { label: '4h', h: 4, m: 0 },
+              { label: '8h', h: 8, m: 0 },
+              { label: '1 day', h: 24, m: 0 },
+            ].map((d) => (
+              <TouchableOpacity
+                key={d.label}
+                style={styles.quickDurationButton}
+                onPress={() => setDuration(d.h, d.m)}
+              >
+                <Text style={styles.quickDurationText}>{d.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.quickDurationButton}
+              onPress={() => {
+                setCustomDurationSeconds(null);
+                setDurationHours('');
+                setDurationMinutes('');
+              }}
+            >
+              <Text style={styles.quickDurationText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Quick Duration Buttons */}
@@ -428,29 +485,54 @@ export const CreateTaskScreen = () => {
           </View>
         </View>
 
-        {/* Custom Due Date Input */}
+        {/* Due Date Picker */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>
             Due Date <Text style={styles.required}>*</Text>
           </Text>
-          <TextInput
-            style={[styles.input, errors.dueAt && styles.inputError]}
-            placeholder="2026-02-05T18:00:00.000Z"
-            placeholderTextColor="#9CA3AF"
-            value={dueAt}
-            onChangeText={(text) => {
-              setDueAt(text);
-              if (errors.dueAt) setErrors({ ...errors, dueAt: undefined });
-            }}
-          />
+          <TouchableOpacity
+            style={[styles.input, styles.dropdown, errors.dueAt && styles.inputError]}
+            onPress={() => setShowDuePicker(true)}
+          >
+            <Text style={styles.dropdownText}>
+              {dueAtDate ? dueAtDate.toLocaleString() : 'Tap to pick date & time'}
+            </Text>
+            <Text style={styles.dropdownCaret}>▼</Text>
+          </TouchableOpacity>
           {errors.dueAt && (
             <Text style={styles.errorText}>{errors.dueAt}</Text>
           )}
           <Text style={styles.helperText}>
-            {dueAt && !errors.dueAt
-              ? `Due: ${new Date(dueAt).toLocaleString()}`
-              : 'ISO format or use quick buttons above'}
+            Choose a specific deadline or use quick buttons above.
           </Text>
+          {showDuePicker && (
+            <DateTimePicker
+              value={dueAtDate ?? new Date()}
+              mode="datetime"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              {...(Platform.OS === 'ios'
+                ? {
+                    themeVariant: 'light' as const,
+                    textColor: '#111827',
+                  }
+                : {})}
+              onChange={(_event, selected) => {
+                if (Platform.OS !== 'ios') setShowDuePicker(false);
+                if (selected) {
+                  setDueAtDate(selected);
+                  if (errors.dueAt) setErrors({ ...errors, dueAt: undefined });
+                }
+              }}
+            />
+          )}
+          {Platform.OS === 'ios' && showDuePicker ? (
+            <TouchableOpacity
+              style={[styles.quickDurationButton, { alignSelf: 'flex-start', marginTop: 10 }]}
+              onPress={() => setShowDuePicker(false)}
+            >
+              <Text style={styles.quickDurationText}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {/* Action Buttons */}
@@ -649,6 +731,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#374151',
+  },
+  durationRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  durationField: {
+    flex: 1,
+  },
+  durationLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 6,
+    fontWeight: '600',
   },
   buttonContainer: {
     flexDirection: 'row',

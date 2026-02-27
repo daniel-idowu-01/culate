@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer@1.6.0/mod.ts';
@@ -8,6 +9,9 @@ type Task = {
   id: string;
   title: string;
   status: string;
+  priority?: string | null;
+  created_by?: string | null;
+  assigned_to?: string | null;
   department: string | null;
   due_at: string | null;
   custom_duration_seconds: number | null;
@@ -15,6 +19,25 @@ type Task = {
   escalated_at: string | null;
   escalated_to: string | null;
 };
+
+type Person = { full_name: string | null; email: string | null };
+
+function displayName(p: Person | null | undefined, fallback: string) {
+  const name = p?.full_name?.trim();
+  if (name) return name;
+  const email = p?.email?.trim();
+  if (email && email.includes('@')) return email.split('@')[0];
+  return fallback;
+}
+
+function formatTimerInfo(task: Task) {
+  if (task.custom_duration_seconds && task.started_at) {
+    const hours = Math.floor(task.custom_duration_seconds / 3600);
+    const mins = Math.floor((task.custom_duration_seconds % 3600) / 60);
+    return `Custom duration (${hours}h ${mins}m) from started_at`;
+  }
+  return task.due_at ? 'Fixed deadline (due_at)' : 'No deadline';
+}
 
 function isOverdueDueAt(dueAt: string | null, status: string): boolean {
   if (!dueAt || status === 'closed') return false;
@@ -73,6 +96,26 @@ async function sendEmailsForTask(
     return;
   }
 
+  const assigneeId = task.assigned_to ?? null;
+  const creatorId = task.created_by ?? null;
+
+  const [{ data: assignee }, { data: creator }] = await Promise.all([
+    assigneeId
+      ? supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', assigneeId)
+          .maybeSingle()
+      : Promise.resolve({ data: null } as { data: Person | null }),
+    creatorId
+      ? supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', creatorId)
+          .maybeSingle()
+      : Promise.resolve({ data: null } as { data: Person | null }),
+  ]);
+
   const deadlineIso = getDeadlineForEmail(task);
   const dueDate = deadlineIso ? new Date(deadlineIso) : null;
   const formattedDueAt =
@@ -103,12 +146,26 @@ async function sendEmailsForTask(
 
   for (const admin of admins) {
     const recipientName = admin.full_name || admin.email?.split('@')[0] || 'Admin';
+    const assigneeLine = assigneeId
+      ? `${displayName(assignee as Person | null, assigneeId)}${
+          (assignee as Person | null)?.email ? ` (${(assignee as Person | null)!.email})` : ''
+        }`
+      : 'Unassigned';
+    const creatorLine = creatorId
+      ? `${displayName(creator as Person | null, creatorId)}${
+          (creator as Person | null)?.email ? ` (${(creator as Person | null)!.email})` : ''
+        }`
+      : 'Unknown';
     const htmlBody = `
       <html>
         <body>
           <h2>A task has exceeded its SLA</h2>
           <p>Hi ${recipientName}, a staff task has passed its deadline and has been escalated.</p>
           <p><strong>${task.title}</strong></p>
+          <p><strong>Assigned to:</strong> ${assigneeLine}</p>
+          <p><strong>Created by:</strong> ${creatorLine}</p>
+          <p><strong>Department:</strong> ${task.department ?? 'N/A'}</p>
+          <p><strong>Timer:</strong> ${formatTimerInfo(task)}</p>
           <p>Due: ${formattedDueAt}</p>
           <p>Task ID: ${task.id}</p>
           <p>Please review this task in ${appName}.</p>
@@ -118,6 +175,10 @@ async function sendEmailsForTask(
     const textBody = [
       '[OVERDUE TASK]',
       `Task: ${task.title}`,
+      `Assigned to: ${assigneeLine}`,
+      `Created by: ${creatorLine}`,
+      `Department: ${task.department ?? 'N/A'}`,
+      `Timer: ${formatTimerInfo(task)}`,
       `Due: ${formattedDueAt}`,
       `ID: ${task.id}`,
       '',
@@ -161,7 +222,7 @@ serve(async (_req: Request) => {
   const { data: tasks, error } = await supabase
     .from('tasks')
     .select(
-      'id, title, status, department, due_at, custom_duration_seconds, started_at, escalated_at, escalated_to',
+      'id, title, status, priority, created_by, assigned_to, department, due_at, custom_duration_seconds, started_at, escalated_at, escalated_to',
     )
     .neq('status', 'closed')
     .is('escalated_at', null)
@@ -174,7 +235,7 @@ serve(async (_req: Request) => {
     });
   }
 
-  const overdueTasks: Task[] = (tasks ?? []).filter((t) =>
+  const overdueTasks: Task[] = (tasks ?? []).filter((t: Task) =>
     isOverdueCustom(t.custom_duration_seconds, t.started_at, t.status) ||
     isOverdueDueAt(t.due_at, t.status),
   ) as Task[];

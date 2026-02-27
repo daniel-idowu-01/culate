@@ -9,7 +9,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Image,
+  Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -158,6 +160,8 @@ export const TaskDetailScreen = () => {
   const [status, setStatus] = useState<TaskStatus>('open');
   const [priority, setPriority] = useState<TaskPriority>('p2');
   const [dueAt, setDueAt] = useState<string | null>(null);
+  const [dueAtDate, setDueAtDate] = useState<Date | null>(null);
+  const [showDuePicker, setShowDuePicker] = useState(false);
   const [assignedTo, setAssignedTo] = useState('');
   const [department, setDepartment] = useState('Sales');
   const [timeInfo, setTimeInfo] = useState(formatRemaining(null, 'open'));
@@ -221,6 +225,7 @@ export const TaskDetailScreen = () => {
         setStatus(t.status);
         setPriority(t.priority);
         setDueAt(t.due_at);
+        setDueAtDate(t.due_at ? new Date(t.due_at) : null);
         setAssignedTo(t.assigned_to);
         setDepartment(t.department ?? 'Sales');
         setCustomDurationSeconds(t.custom_duration_seconds);
@@ -256,6 +261,7 @@ export const TaskDetailScreen = () => {
             setStatus(updatedTask.status);
             setPriority(updatedTask.priority);
             setDueAt(updatedTask.due_at);
+            setDueAtDate(updatedTask.due_at ? new Date(updatedTask.due_at) : null);
             setAssignedTo(updatedTask.assigned_to);
             setDepartment(updatedTask.department ?? 'Sales');
             setCustomDurationSeconds(updatedTask.custom_duration_seconds);
@@ -1157,14 +1163,44 @@ export const TaskDetailScreen = () => {
         {/* Due Date (Managers only) */}
         {canEditAll && (
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Due Date (ISO format)</Text>
-            <TextInput
-              style={styles.input}
-              value={dueAt ?? ''}
-              onChangeText={(txt) => setDueAt(txt || null)}
-              placeholder="2026-02-05T18:00:00.000Z"
-              placeholderTextColor="#9CA3AF"
-            />
+            <Text style={styles.label}>Due Date</Text>
+            <TouchableOpacity
+              style={[styles.input, styles.dropdown]}
+              onPress={() => setShowDuePicker(true)}
+            >
+              <Text style={styles.dropdownText}>
+                {dueAtDate ? dueAtDate.toLocaleString() : 'Tap to pick date & time'}
+              </Text>
+              <Text style={styles.dropdownCaret}>▼</Text>
+            </TouchableOpacity>
+            {showDuePicker && (
+              <DateTimePicker
+                value={dueAtDate ?? new Date()}
+                mode="datetime"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                {...(Platform.OS === 'ios'
+                  ? {
+                      themeVariant: 'light' as const,
+                      textColor: '#111827',
+                    }
+                  : {})}
+                onChange={(_event, selected) => {
+                  if (Platform.OS !== 'ios') setShowDuePicker(false);
+                  if (selected) {
+                    setDueAtDate(selected);
+                    setDueAt(selected.toISOString());
+                  }
+                }}
+              />
+            )}
+            {Platform.OS === 'ios' && showDuePicker ? (
+              <TouchableOpacity
+                style={[styles.saveButton, { marginTop: 10, alignSelf: 'flex-start', paddingHorizontal: 16 }]}
+                onPress={() => setShowDuePicker(false)}
+              >
+                <Text style={styles.saveButtonText}>Done</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
 
