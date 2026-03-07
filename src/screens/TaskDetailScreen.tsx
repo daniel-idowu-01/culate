@@ -162,6 +162,7 @@ export const TaskDetailScreen = () => {
   const [dueAt, setDueAt] = useState<string | null>(null);
   const [dueAtDate, setDueAtDate] = useState<Date | null>(null);
   const [showDuePicker, setShowDuePicker] = useState(false);
+  const [duePickerMode, setDuePickerMode] = useState<'date' | 'time'>('date');
   const [assignedTo, setAssignedTo] = useState('');
   const [department, setDepartment] = useState('Sales');
   const [timeInfo, setTimeInfo] = useState(formatRemaining(null, 'open'));
@@ -1166,7 +1167,10 @@ export const TaskDetailScreen = () => {
             <Text style={styles.label}>Due Date</Text>
             <TouchableOpacity
               style={[styles.input, styles.dropdown]}
-              onPress={() => setShowDuePicker(true)}
+              onPress={() => {
+                if (Platform.OS === 'android') setDuePickerMode('date');
+                setShowDuePicker(true);
+              }}
             >
               <Text style={styles.dropdownText}>
                 {dueAtDate ? dueAtDate.toLocaleString() : 'Tap to pick date & time'}
@@ -1176,7 +1180,7 @@ export const TaskDetailScreen = () => {
             {showDuePicker && (
               <DateTimePicker
                 value={dueAtDate ?? new Date()}
-                mode="datetime"
+                mode={Platform.OS === 'ios' ? 'datetime' : duePickerMode}
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 {...(Platform.OS === 'ios'
                   ? {
@@ -1184,12 +1188,41 @@ export const TaskDetailScreen = () => {
                       textColor: '#111827',
                     }
                   : {})}
-                onChange={(_event, selected) => {
-                  if (Platform.OS !== 'ios') setShowDuePicker(false);
-                  if (selected) {
-                    setDueAtDate(selected);
-                    setDueAt(selected.toISOString());
+                onChange={(event, selected) => {
+                  if (Platform.OS === 'ios') {
+                    if (selected) {
+                      setDueAtDate(selected);
+                      setDueAt(selected.toISOString());
+                    }
+                    return;
                   }
+
+                  if (event.type === 'dismissed') {
+                    setShowDuePicker(false);
+                    setDuePickerMode('date');
+                    return;
+                  }
+
+                  if (!selected) {
+                    setShowDuePicker(false);
+                    setDuePickerMode('date');
+                    return;
+                  }
+
+                  if (duePickerMode === 'date') {
+                    const next = dueAtDate ? new Date(dueAtDate) : new Date();
+                    next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+                    setDueAtDate(next);
+                    setDuePickerMode('time');
+                    return;
+                  }
+
+                  const next = dueAtDate ? new Date(dueAtDate) : new Date();
+                  next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+                  setDueAtDate(next);
+                  setDueAt(next.toISOString());
+                  setShowDuePicker(false);
+                  setDuePickerMode('date');
                 }}
               />
             )}
